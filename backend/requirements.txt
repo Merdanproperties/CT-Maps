@@ -1,0 +1,15 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+geoalchemy2==0.14.2
+geopandas==0.14.1
+fiona==1.9.5
+shapely==2.0.2
+numpy<2.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+alembic==1.12.1
+python-multipart==0.0.6
+requests==2.31.0

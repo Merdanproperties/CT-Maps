@@ -1,0 +1,146 @@
+.search-bar {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+}
+
+.search-bar-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-bar-input-wrapper:focus-within {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.search-icon {
+  color: #9ca3af;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+.search-bar-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 1rem;
+  color: #111827;
+  background: transparent;
+}
+
+.search-bar-input::placeholder {
+  color: #9ca3af;
+}
+
+.search-bar-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  transition: color 0.2s;
+  margin-left: 0.5rem;
+}
+
+.search-bar-clear:hover {
+  color: #374151;
+}
+
+.search-bar-suggestions {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 1000;
+  margin-top: 0.25rem;
+}
+
+.search-bar-suggestion {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.search-bar-suggestion:last-child {
+  border-bottom: none;
+}
+
+.search-bar-suggestion:hover,
+.search-bar-suggestion.selected {
+  background-color: #f9fafb;
+}
+
+.search-bar-suggestion-icon {
+  color: #667eea;
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.search-bar-suggestion-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-bar-suggestion-text {
+  font-size: 0.95rem;
+  color: #111827;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.search-bar-suggestion-count {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.search-bar-loading,
+.search-bar-no-results {
+  padding: 1rem;
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+/* Scrollbar styling */
+.search-bar-suggestions::-webkit-scrollbar {
+  width: 8px;
+}
+
+.search-bar-suggestions::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+.search-bar-suggestions::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.search-bar-suggestions::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
