@@ -45,10 +45,33 @@ class PropertyDetailResponse(PropertyResponse):
     building_area_sqft: Optional[float]
     bedrooms: Optional[int]
     bathrooms: Optional[float]
+    stories: Optional[int]
+    total_rooms: Optional[int]
     sales_count: int
     days_since_sale: Optional[int]
     additional_data: Optional[dict]
     sales: List[dict] = []
+    
+    # Tax Information
+    tax_amount: Optional[float]
+    tax_year: Optional[int]
+    tax_exemptions: Optional[str]
+    assessment_year: Optional[int]
+    
+    # Building Exterior Details
+    exterior_walls: Optional[str]
+    roof_type: Optional[str]
+    roof_material: Optional[str]
+    foundation_type: Optional[str]
+    exterior_finish: Optional[str]
+    garage_type: Optional[str]
+    garage_spaces: Optional[int]
+    
+    # Building Interior Details
+    interior_finish: Optional[str]
+    heating_type: Optional[str]
+    cooling_type: Optional[str]
+    fireplace_count: Optional[int]
 
 @router.get("/{property_id}", response_model=PropertyDetailResponse)
 async def get_property(property_id: int, db: Session = Depends(get_db)):
@@ -95,9 +118,29 @@ async def get_property(property_id: int, db: Session = Depends(get_db)):
             building_area_sqft=property.building_area_sqft,
             bedrooms=property.bedrooms,
             bathrooms=property.bathrooms,
+            stories=property.stories,
+            total_rooms=property.total_rooms,
             sales_count=property.sales_count or 0,
             days_since_sale=property.days_since_sale,
             additional_data=property.additional_data,
+            # Tax Information
+            tax_amount=property.tax_amount,
+            tax_year=property.tax_year,
+            tax_exemptions=property.tax_exemptions,
+            assessment_year=property.assessment_year,
+            # Building Exterior Details
+            exterior_walls=property.exterior_walls,
+            roof_type=property.roof_type,
+            roof_material=property.roof_material,
+            foundation_type=property.foundation_type,
+            exterior_finish=property.exterior_finish,
+            garage_type=property.garage_type,
+            garage_spaces=property.garage_spaces,
+            # Building Interior Details
+            interior_finish=property.interior_finish,
+            heating_type=property.heating_type,
+            cooling_type=property.cooling_type,
+            fireplace_count=property.fireplace_count,
             geometry={"type": "Feature", "geometry": json.loads(geom_result) if geom_result else None}
         )
     except Exception as e:

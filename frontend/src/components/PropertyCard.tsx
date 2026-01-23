@@ -1,15 +1,34 @@
-import { Property } from '../api/client'
+import { Property, PropertyNormalizer, PropertyCardData } from '../types/property'
+import { DevelopmentSafety } from '../utils/developmentSafety'
 import { Home, Building2, Users, Phone, Mail } from 'lucide-react'
 import './PropertyCard.css'
 
 interface PropertyCardProps {
-  property: Property
+  property: Property | any // Accept any to handle API responses, will be normalized
   onClick?: () => void
 }
 
 export default function PropertyCard({ property, onClick }: PropertyCardProps) {
-  const formatCurrency = (value: number | null) => {
-    if (!value) return 'N/A'
+  // Development safety check - validates data structure in dev mode
+  DevelopmentSafety.validatePropertyBeforeRender(property, 'PropertyCard')
+  
+  // Normalize and validate property data - ensures type safety and backward compatibility
+  const normalizedProperty = PropertyNormalizer.normalize(property)
+  const cardData = PropertyNormalizer.toCardData(normalizedProperty)
+  
+  // Validate property is displayable
+  const validation = PropertyNormalizer.validate(normalizedProperty)
+  if (!validation.isValid) {
+    console.warn('Property validation failed:', validation.errors, property)
+    // Still render, but with safe defaults
+  }
+  // Safe getter functions with defaults
+  const getSafeValue = (field: string, defaultValue: any = null) => {
+    return PropertyNormalizer.getSafeValue(normalizedProperty, field, defaultValue)
+  }
+
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value == null || isNaN(value)) return 'N/A'
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -18,24 +37,31 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
     }).format(value)
   }
 
-  const formatShortCurrency = (value: number | null) => {
-    if (!value) return null
-    if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`
-    } else if (value >= 1000) {
-      return `$${(value / 1000).toFixed(0)}K`
+  const formatShortCurrency = (value: number | null | undefined) => {
+    if (value == null || isNaN(value)) return null
+    const numValue = Number(value)
+    if (numValue >= 1000000) {
+      return `$${(numValue / 1000000).toFixed(1)}M`
+    } else if (numValue >= 1000) {
+      return `$${(numValue / 1000).toFixed(0)}K`
     }
-    return formatCurrency(value)
+    return formatCurrency(numValue)
   }
 
-  // Determine property type display
+  const formatNumber = (value: number | null | undefined, decimals: number = 0) => {
+    if (value == null || isNaN(value)) return 'N/A'
+    return Number(value).toLocaleString(undefined, { maximumFractionDigits: decimals })
+  }
+
+  // Determine property type display with safe fallback
   const getPropertyTypeDisplay = () => {
-    if (!property.property_type) return null
-    const type = property.property_type.toLowerCase()
+    const propType = getSafeValue('property_type')
+    if (!propType) return null
+    const type = String(propType).toLowerCase()
     if (type.includes('single') || type.includes('one')) return 'Single Family'
     if (type.includes('two') || type.includes('2')) return 'Two Family'
     if (type.includes('multi') || type.includes('5+')) return 'Multi family (5+)'
-    return property.property_type
+    return String(propType)
   }
 
   return (
@@ -43,30 +69,39 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
       {/* Checkbox */}
       <input type="checkbox" className="property-card-checkbox" />
 
-      {/* Address and Location */}
+      {/* Address and Location - Safe with defaults */}
       <div className="property-header">
-        <h3>{property.address || 'No Address'}</h3>
-        {property.municipality && (
-          <span className="municipality">{property.municipality}, CT {property.zip_code || ''}</span>
+        <h3>{getSafeValue('address', 'No Address')}</h3>
+        {getSafeValue('municipality') && (
+          <span className="municipality">
+            {getSafeValue('municipality')}, CT {getSafeValue('zip_code', '')}
+          </span>
         )}
       </div>
 
-      {/* Estimated Value (Top Right) */}
+      {/* Estimated Value (Top Right) - Safe rendering */}
       <div className="property-value-section">
-        {property.assessed_value && (
+        {getSafeValue('assessed_value') != null && (
           <>
-            <div className="property-value">{formatShortCurrency(property.assessed_value)}</div>
+            <div className="property-value">{formatShortCurrency(getSafeValue('assessed_value'))}</div>
             <div className="value-label">Est. Value</div>
           </>
         )}
       </div>
 
-      {/* Details Row */}
+      {/* Details Row - Safe with null checks */}
       <div className="property-details">
-        {property.lot_size_sqft && (
+        {getSafeValue('building_area_sqft') != null && (
           <div className="detail-row">
             <Home size={16} className="icon" />
-            <span className="value">{property.lot_size_sqft.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq. Ft.</span>
+            <span className="value">{formatNumber(getSafeValue('building_area_sqft'))} sqft</span>
+          </div>
+        )}
+
+        {getSafeValue('lot_size_sqft') != null && (
+          <div className="detail-row">
+            <Home size={16} className="icon" />
+            <span className="value">{formatNumber(getSafeValue('lot_size_sqft'))} lot</span>
           </div>
         )}
 
@@ -77,7 +112,22 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
           </div>
         )}
 
-        {property.is_absentee === 1 && (
+        {/* Additional fields can be added here safely */}
+        {getSafeValue('bedrooms') != null && (
+          <div className="detail-row">
+            <Home size={16} className="icon" />
+            <span className="value">{getSafeValue('bedrooms')} Bedrooms</span>
+          </div>
+        )}
+
+        {getSafeValue('bathrooms') != null && (
+          <div className="detail-row">
+            <Home size={16} className="icon" />
+            <span className="value">{getSafeValue('bathrooms')} Bathrooms</span>
+          </div>
+        )}
+
+        {Number(getSafeValue('is_absentee', 0)) === 1 && (
           <div className="detail-row">
             <Users size={16} className="icon" />
             <span className="value">Individual Owned</span>
@@ -85,19 +135,23 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
         )}
       </div>
 
-      {/* Owner Name (Bottom Right) */}
+      {/* Owner Name (Bottom Right) - Safe */}
       <div className="equity-section">
-        <div className="equity-value">{property.owner_name || 'N/A Owner'}</div>
+        <div className="equity-value">{getSafeValue('owner_name', 'N/A Owner')}</div>
         <div className="value-label">Owner</div>
       </div>
 
-      {/* Contact Information - Always show */}
+      {/* Contact Information - Always show with safe defaults */}
       <div className="property-contact">
         <div className="contact-item">
           <Phone size={14} className="contact-icon" />
-          {property.owner_phone ? (
-            <a href={`tel:${property.owner_phone}`} className="contact-link" onClick={(e) => e.stopPropagation()}>
-              {property.owner_phone}
+          {getSafeValue('owner_phone') ? (
+            <a 
+              href={`tel:${getSafeValue('owner_phone')}`} 
+              className="contact-link" 
+              onClick={(e) => e.stopPropagation()}
+            >
+              {getSafeValue('owner_phone')}
             </a>
           ) : (
             <span className="contact-na">N/A</span>
@@ -105,9 +159,13 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
         </div>
         <div className="contact-item">
           <Mail size={14} className="contact-icon" />
-          {property.owner_email ? (
-            <a href={`mailto:${property.owner_email}`} className="contact-link" onClick={(e) => e.stopPropagation()}>
-              {property.owner_email}
+          {getSafeValue('owner_email') ? (
+            <a 
+              href={`mailto:${getSafeValue('owner_email')}`} 
+              className="contact-link" 
+              onClick={(e) => e.stopPropagation()}
+            >
+              {getSafeValue('owner_email')}
             </a>
           ) : (
             <span className="contact-na">N/A</span>
@@ -115,14 +173,15 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
         </div>
       </div>
 
-      {/* Tags */}
+      {/* Tags - Safe with number conversion */}
       <div className="property-tags">
-        {property.is_absentee === 1 && (
+        {Number(getSafeValue('is_absentee', 0)) === 1 && (
           <span className="tag tag-absentee">Absentee Owners</span>
         )}
-        {property.is_vacant === 1 && (
+        {Number(getSafeValue('is_vacant', 0)) === 1 && (
           <span className="tag tag-vacant">Vacant</span>
         )}
+        {/* Additional tags can be added here safely */}
       </div>
     </div>
   )

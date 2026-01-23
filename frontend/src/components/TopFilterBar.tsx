@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, ChevronDown, SlidersHorizontal, Save } from 'lucide-react'
+import { Search, ChevronDown, Save } from 'lucide-react'
 import SearchBar from './SearchBar'
 import './TopFilterBar.css'
 
@@ -12,10 +12,20 @@ export default function TopFilterBar({ onFilterChange, onSearchChange }: TopFilt
   const [selectedFilters, setSelectedFilters] = useState<Record<string, any>>({})
 
   const handleFilterSelect = (filterName: string, value: any) => {
-    const newFilters = { ...selectedFilters, [filterName]: value }
-    setSelectedFilters(newFilters)
-    if (onFilterChange) {
-      onFilterChange(filterName, value)
+    // If "Clear" is selected, clear the filter
+    if (value === 'Clear' || value === '') {
+      const newFilters = { ...selectedFilters }
+      delete newFilters[filterName]
+      setSelectedFilters(newFilters)
+      if (onFilterChange) {
+        onFilterChange(filterName, null)
+      }
+    } else {
+      const newFilters = { ...selectedFilters, [filterName]: value }
+      setSelectedFilters(newFilters)
+      if (onFilterChange) {
+        onFilterChange(filterName, value)
+      }
     }
   }
 
@@ -37,6 +47,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange }: TopFilt
           <FilterDropdown
             label="Lead Types"
             options={[
+              'Clear',
               'High Equity',
               'Vacant Properties',
               'Absentee Owners',
@@ -48,48 +59,62 @@ export default function TopFilterBar({ onFilterChange, onSearchChange }: TopFilt
           />
           
           <FilterDropdown
-            label="Property Types"
+            label="Property Type"
             options={[
-              'Single Family',
-              'Two Family',
-              'Multi Family',
+              'Clear',
+              'Residential',
               'Commercial',
-              'Vacant Land'
+              'Industrial',
+              'Vacant Land',
+              'Mixed Use'
             ]}
             onSelect={(value) => handleFilterSelect('propertyTypes', value)}
             selected={selectedFilters.propertyTypes}
           />
           
           <FilterDropdown
-            label="Price"
+            label="Assessed Value"
             options={[
-              'Under $100K',
+              'Clear',
+              'Under $50K',
+              '$50K - $100K',
               '$100K - $200K',
-              '$200K - $300K',
-              '$300K - $500K',
-              '$500K+'
+              '$200K - $500K',
+              '$500K - $1M',
+              '$1M+'
             ]}
             onSelect={(value) => handleFilterSelect('price', value)}
             selected={selectedFilters.price}
           />
           
           <FilterDropdown
-            label="Beds / Baths"
+            label="Lot Size"
             options={[
-              '1+ Bed',
-              '2+ Beds',
-              '3+ Beds',
-              '1+ Bath',
-              '2+ Baths'
+              'Clear',
+              'Under 5,000 sqft',
+              '5,000 - 10,000 sqft',
+              '10,000 - 20,000 sqft',
+              '20,000 - 43,560 sqft (1 acre)',
+              '1+ acres'
             ]}
-            onSelect={(value) => handleFilterSelect('bedsBaths', value)}
-            selected={selectedFilters.bedsBaths}
+            onSelect={(value) => handleFilterSelect('lotSize', value)}
+            selected={selectedFilters.lotSize}
           />
           
-          <button className="filter-more-btn">
-            <SlidersHorizontal size={16} />
-            <span>More</span>
-          </button>
+          <FilterDropdown
+            label="Sale Date"
+            options={[
+              'Clear',
+              'Last 30 days',
+              'Last 90 days',
+              'Last 6 months',
+              'Last year',
+              'Last 2 years',
+              'Last 5 years'
+            ]}
+            onSelect={(value) => handleFilterSelect('saleDate', value)}
+            selected={selectedFilters.saleDate}
+          />
         </div>
 
         {/* Save Search Button */}
@@ -111,14 +136,17 @@ interface FilterDropdownProps {
 
 function FilterDropdown({ label, options, onSelect, selected }: FilterDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
+  
+  // Don't show "Clear" as selected - show label instead
+  const displayValue = selected && selected !== 'Clear' ? selected : label
 
   return (
     <div className="filter-dropdown">
       <button
-        className={`filter-dropdown-btn ${selected ? 'has-selection' : ''}`}
+        className={`filter-dropdown-btn ${selected && selected !== 'Clear' ? 'has-selection' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
       >
-        <span>{selected || label}</span>
+        <span>{displayValue}</span>
         <ChevronDown size={16} className={isOpen ? 'open' : ''} />
       </button>
       {isOpen && (

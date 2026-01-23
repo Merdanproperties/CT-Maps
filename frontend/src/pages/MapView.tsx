@@ -1,8 +1,8 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap, useMapEvents, LayerGroup } from 'react-leaflet'
 import { MapBoundsUpdater } from './MapBoundsUpdater'
-import { useQuery } from '@tanstack/react-query'
 import { propertyApi, Property, analyticsApi } from '../api/client'
+import { usePropertyQuery } from '../hooks/usePropertyQuery'
 import PropertyCard from '../components/PropertyCard'
 import TopFilterBar from '../components/TopFilterBar'
 import ExportButton from '../components/ExportButton'
@@ -114,8 +114,8 @@ export default function MapView() {
       // If municipality provided, filter by it and show property list
       if (municipality) {
         console.log('📍 Setting municipality from location.state:', municipality)
-        if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
-          setCenter([newCenter[0], newCenter[1]])
+      if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
+        setCenter([newCenter[0], newCenter[1]])
           setZoom(newZoom || 11)
         }
         setFilterParams({ municipality: municipality })
@@ -142,7 +142,7 @@ export default function MapView() {
         
         propertyApi.search({ q: address, page_size: 20 }).then(result => {
           console.log('📦 Address search result:', result.total, 'properties found')
-          if (result.properties && result.properties.length > 0) {
+            if (result.properties && result.properties.length > 0) {
             // Find exact match first, or use first result
             const exactMatch = result.properties.find(p => 
               p.address?.toLowerCase() === address.toLowerCase() ||
@@ -208,18 +208,18 @@ export default function MapView() {
         // Clear location state after processing
         window.history.replaceState({}, document.title)
       }
-      // If municipality provided, filter by it and show property list
+        // If municipality provided, filter by it and show property list
       else if (municipality) {
-        console.log('📍 Setting municipality from location.state:', municipality)
+          console.log('📍 Setting municipality from location.state:', municipality)
         if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
           setCenter([newCenter[0], newCenter[1]])
           setZoom(newZoom || 11)
         }
-        setFilterParams({ municipality: municipality })
-        setSearchQuery('') // Clear search query when using municipality
-        setShowPropertyList(true)
-        setFilterType(null) // Clear any filter type when searching by municipality
-      }
+          setFilterParams({ municipality: municipality })
+          setSearchQuery('') // Clear search query when using municipality
+          setShowPropertyList(true)
+          setFilterType(null) // Clear any filter type when searching by municipality
+        }
       // If just center/zoom provided (e.g., state selection)
       else if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
         setCenter([newCenter[0], newCenter[1]])
@@ -234,88 +234,49 @@ export default function MapView() {
   const bbox = useMemo(() => {
     if (mapBounds) {
       // Use actual map bounds: minLng, minLat, maxLng, maxLat
-      return `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
+      const bboxVal = `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:237',message:'bbox calculated from mapBounds',data:{bbox:bboxVal,mapBounds},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      return bboxVal
     }
     // Fallback to approximate bbox based on center and zoom
     const latRange = 180 / Math.pow(2, zoom)
     const lngRange = 360 / Math.pow(2, zoom)
-    return `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
+    const bboxVal = `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:242',message:'bbox calculated from fallback',data:{bbox:bboxVal,center,zoom,mapBounds},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    return bboxVal
   }, [mapBounds, center, zoom])
 
-  // Fetch properties based on filter or search
-  // Only use bbox when NOT searching by municipality or query
-  const useBbox = !filterParams.municipality && (!searchQuery || searchQuery.trim().length === 0) && !filterType
-  
-  // Create a stable bbox string for the query key
-  const bboxKey = useMemo(() => {
-    if (!useBbox || !mapBounds) return null
-    return `${mapBounds.west.toFixed(2)},${mapBounds.south.toFixed(2)},${mapBounds.east.toFixed(2)},${mapBounds.north.toFixed(2)}`
-  }, [useBbox, mapBounds])
-  
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['properties', filterType, filterParams, bboxKey, searchQuery],
-    enabled: true,
-    staleTime: 10000,
-    refetchOnWindowFocus: false,
-      queryFn: async () => {
-        let result
-        
-        // Priority 1: Municipality filter
-        if (filterParams.municipality) {
-          result = await propertyApi.search({ municipality: filterParams.municipality, page_size: 100 })
-          setShowPropertyList(true)
-        } 
-        // Priority 2: Search query
-        else if (searchQuery && searchQuery.trim().length > 0) {
-          result = await propertyApi.search({ q: searchQuery.trim(), page_size: 100 })
-          setShowPropertyList(true)
-        } 
-        // Priority 3: Filter type
-        else if (filterType) {
-          switch (filterType) {
-            case 'high-equity':
-              result = await propertyApi.getHighEquity({ ...filterParams, page_size: 500 })
-              break
-            case 'vacant':
-              result = await propertyApi.getVacant({ ...filterParams, page_size: 500 })
-              break
-            case 'absentee-owners':
-              result = await propertyApi.getAbsenteeOwners({ ...filterParams, page_size: 500 })
-              break
-            case 'recently-sold':
-              result = await propertyApi.getRecentlySold({ ...filterParams, page_size: 500 })
-              break
-            case 'low-equity':
-              result = await propertyApi.getLowEquity({ ...filterParams, page_size: 500 })
-              break
-            default:
-              result = await propertyApi.search({ bbox, page_size: 500 })
-          }
-        } else {
-          // Use bbox to show properties in current viewport
-          result = await propertyApi.search({ bbox, page_size: 500 })
-        }
-        
-        // Ensure result structure
-        if (!result) {
-          return { properties: [], total: 0, page: 1, page_size: 500 }
-        }
-        if (!result.properties) {
-          result.properties = []
-        }
-        if (result.total === undefined) {
-          result.total = result.properties.length
-        }
-        
-        // Track analytics (non-blocking)
-        analyticsApi.trackSearch({
-          filter_type: filterType || undefined,
-          result_count: result.total || 0,
-        }).catch(() => {})
-        
-        return result
-    },
+  // Use the new simplified property query hook
+  const { data, isLoading, error, status, fetchStatus } = usePropertyQuery({
+    filterType,
+    filterParams,
+    searchQuery,
+    bbox,
+    mapBounds,
+    center,
+    zoom,
   })
+
+  // Show property list when we have search criteria
+  useEffect(() => {
+    if (filterParams.municipality || (searchQuery && searchQuery.trim().length > 0) || filterType) {
+      setShowPropertyList(true)
+    }
+  }, [filterParams.municipality, searchQuery, filterType])
+
+  // Track analytics when data changes
+  useEffect(() => {
+    if (data && data.total > 0) {
+      analyticsApi.trackSearch({
+        filter_type: filterType || undefined,
+        result_count: data.total || 0,
+      }).catch(() => {})
+    }
+  }, [data, filterType])
 
   // Ensure selected property is included in properties array
   const properties = useMemo(() => {
@@ -348,21 +309,21 @@ export default function MapView() {
     }
     
     const features = properties.map((prop) => {
-      if (!prop.geometry?.geometry) {
-        return null
-      }
-      return {
-        type: 'Feature' as const,
-        geometry: prop.geometry.geometry,
-        properties: {
-          id: prop.id,
-          parcel_id: prop.parcel_id,
-          address: prop.address,
-          street_number: getStreetNumber(prop.address),
-          assessed_value: prop.assessed_value,
-          owner_name: prop.owner_name,
-        },
-      }
+        if (!prop.geometry?.geometry) {
+          return null
+        }
+        return {
+          type: 'Feature' as const,
+          geometry: prop.geometry.geometry,
+          properties: {
+            id: prop.id,
+            parcel_id: prop.parcel_id,
+            address: prop.address,
+            street_number: getStreetNumber(prop.address),
+            assessed_value: prop.assessed_value,
+            owner_name: prop.owner_name,
+          },
+        }
     }).filter((f): f is NonNullable<typeof f> => f !== null)
     
     return {
@@ -437,6 +398,48 @@ export default function MapView() {
   }, [setCenter, setZoom])
 
   const handleFilterChange = useCallback((filter: string, value: any) => {
+    // If value is null, clear the filter
+    if (value === null || value === 'All' || value === '') {
+      if (filter === 'leadTypes') {
+        setFilterType(null)
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.min_equity
+          delete newParams.max_equity
+          delete newParams.days
+          return newParams
+        })
+      } else if (filter === 'price') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.min_value
+          delete newParams.max_value
+          return newParams
+        })
+      } else if (filter === 'lotSize') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.min_lot_size
+          delete newParams.max_lot_size
+          return newParams
+        })
+      } else if (filter === 'saleDate') {
+        setFilterType(null)
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.days
+          return newParams
+        })
+      } else if (filter === 'propertyTypes') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.property_type
+          return newParams
+        })
+      }
+      return
+    }
+
     // Handle filter changes from TopFilterBar
     if (filter === 'leadTypes') {
       // Map lead types to filter types
@@ -454,6 +457,84 @@ export default function MapView() {
                              filterType === 'recently-sold' ? { days: 365 } :
                              filterType === 'low-equity' ? { max_equity: 10000 } : {}
         setFilterParams(defaultParams)
+      }
+    } else if (filter === 'price') {
+      // Map price ranges to assessed value ranges
+      const priceMap: Record<string, { min_value?: number; max_value?: number }> = {
+        'Under $50K': { max_value: 50000 },
+        '$50K - $100K': { min_value: 50000, max_value: 100000 },
+        '$100K - $200K': { min_value: 100000, max_value: 200000 },
+        '$200K - $500K': { min_value: 200000, max_value: 500000 },
+        '$500K - $1M': { min_value: 500000, max_value: 1000000 },
+        '$1M+': { min_value: 1000000 }
+      }
+      const priceParams = priceMap[value] || {}
+      if (Object.keys(priceParams).length > 0) {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          // Clear other price-related filters
+          delete newParams.min_value
+          delete newParams.max_value
+          return { ...newParams, ...priceParams }
+        })
+        setFilterType(null) // Clear lead type filter when using price
+      }
+    } else if (filter === 'lotSize') {
+      // Map lot size ranges to lot_size_sqft ranges
+      const lotSizeMap: Record<string, { min_lot_size?: number; max_lot_size?: number }> = {
+        'Under 5,000 sqft': { max_lot_size: 5000 },
+        '5,000 - 10,000 sqft': { min_lot_size: 5000, max_lot_size: 10000 },
+        '10,000 - 20,000 sqft': { min_lot_size: 10000, max_lot_size: 20000 },
+        '20,000 - 43,560 sqft (1 acre)': { min_lot_size: 20000, max_lot_size: 43560 },
+        '1+ acres': { min_lot_size: 43560 }
+      }
+      const lotSizeParams = lotSizeMap[value] || {}
+      if (Object.keys(lotSizeParams).length > 0) {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          // Clear other lot size filters
+          delete newParams.min_lot_size
+          delete newParams.max_lot_size
+          return { ...newParams, ...lotSizeParams }
+        })
+        setFilterType(null) // Clear lead type filter when using lot size
+      }
+    } else if (filter === 'saleDate') {
+      // Map sale date ranges to days since sale
+      const saleDateMap: Record<string, { days?: number }> = {
+        'Last 30 days': { days: 30 },
+        'Last 90 days': { days: 90 },
+        'Last 6 months': { days: 180 },
+        'Last year': { days: 365 },
+        'Last 2 years': { days: 730 },
+        'Last 5 years': { days: 1825 }
+      }
+      const saleDateParams = saleDateMap[value] || {}
+      if (saleDateParams.days) {
+        setFilterType('recently-sold')
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.days
+          return { ...newParams, days: saleDateParams.days }
+        })
+      }
+    } else if (filter === 'propertyTypes') {
+      // Map property type selections to property_type filter
+      const propertyTypeMap: Record<string, string> = {
+        'Residential': 'Residential',
+        'Commercial': 'Commercial',
+        'Industrial': 'Industrial',
+        'Vacant Land': 'Vacant Land',
+        'Mixed Use': 'Mixed Use'
+      }
+      const propertyType = propertyTypeMap[value]
+      if (propertyType) {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.property_type
+          return { ...newParams, property_type: propertyType }
+        })
+        setFilterType(null) // Clear lead type filter when using property type
       }
     } else {
       // Handle other filters
@@ -580,7 +661,7 @@ export default function MapView() {
   }, [properties, zoom])
 
   // Determine if we should show property list or selected property sidebar
-  const shouldShowList = showPropertyList && (filterParams.municipality || searchQuery || filterType || data?.properties?.length > 0)
+  const shouldShowList = showPropertyList && (filterParams.municipality || searchQuery || filterType || (data?.properties && data.properties.length > 0))
   const shouldShowSelectedProperty = selectedProperty !== null && !shouldShowList
   const propertiesToShow = data?.properties || []
   const hasSidebarContent = shouldShowList || shouldShowSelectedProperty
@@ -773,9 +854,10 @@ export default function MapView() {
           center={center}
           zoom={zoom}
           style={{ width: '100%', height: '100%' }}
-          whenReady={(map) => {
-            const leafletMap = map.target
-            mapRef.current = leafletMap // Store map reference
+          whenReady={() => {
+            if (mapRef.current) {
+              // Map is ready, reference is already set
+            }
             
             // Mark map as ready immediately so bbox queries can work
             // Also set initial bounds
@@ -786,7 +868,7 @@ export default function MapView() {
               east: initialBounds.getEast(),
               west: initialBounds.getWest(),
             })
-            setIsMapReady(true)
+              setIsMapReady(true)
             
             // Only listen to user-initiated moves, not programmatic ones
             let isUserMove = true
@@ -854,8 +936,33 @@ export default function MapView() {
       )}
 
       {error && (
-        <div className="loading-overlay" style={{ background: '#fee2e2', color: '#dc2626' }}>
-          <p>⚠️ Error loading properties. Check console for details.</p>
+        <div className="loading-overlay" style={{ background: '#fee2e2', color: '#dc2626', padding: '20px', maxWidth: '500px', margin: '20px auto', borderRadius: '8px' }}>
+          <p style={{ fontWeight: 'bold', marginBottom: '10px' }}>⚠️ Error loading properties</p>
+          <p style={{ fontSize: '14px', marginBottom: '10px' }}>
+            {error instanceof Error ? error.message : 'Unknown error occurred'}
+          </p>
+          {error && (error as any)?.response && (
+            <p style={{ fontSize: '12px', opacity: 0.8 }}>
+              Status: {(error as any).response.status} - {(error as any).response.statusText}
+            </p>
+          )}
+          <p style={{ fontSize: '12px', marginTop: '10px', opacity: 0.7 }}>
+            Check browser console for more details. Make sure the backend is running on port 8000.
+          </p>
+          <button 
+            onClick={() => window.location.reload()} 
+            style={{ 
+              marginTop: '15px', 
+              padding: '8px 16px', 
+              background: '#dc2626', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
 

@@ -8,7 +8,7 @@ interface MapBoundsUpdaterProps {
 export function MapBoundsUpdater({ onBoundsChange }: MapBoundsUpdaterProps) {
   const map = useMap()
   const lastBoundsRef = useRef<string | null>(null)
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onBoundsChangeRef = useRef(onBoundsChange)
   const isInitializedRef = useRef(false)
 

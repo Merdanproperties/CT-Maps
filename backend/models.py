@@ -38,6 +38,28 @@ class Property(Base):
     year_built = Column(Integer)
     bedrooms = Column(Integer)
     bathrooms = Column(Float)
+    stories = Column(Integer)
+    total_rooms = Column(Integer)
+    
+    # Tax Information
+    tax_amount = Column(Float)
+    tax_year = Column(Integer)
+    tax_exemptions = Column(String)
+    
+    # Building Exterior Details
+    exterior_walls = Column(String)
+    roof_type = Column(String)
+    roof_material = Column(String)
+    foundation_type = Column(String)
+    exterior_finish = Column(String)
+    garage_type = Column(String)
+    garage_spaces = Column(Integer)
+    
+    # Building Interior Details
+    interior_finish = Column(String)
+    heating_type = Column(String)
+    cooling_type = Column(String)
+    fireplace_count = Column(Integer)
     
     # Sales data
     last_sale_date = Column(Date)

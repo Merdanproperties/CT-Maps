@@ -5,7 +5,7 @@ import { apiClient } from '../api/client'
 import './SearchBar.css'
 
 interface AutocompleteSuggestion {
-  type: 'address' | 'town'
+  type: 'address' | 'town' | 'state'
   value: string
   display: string
   count?: number

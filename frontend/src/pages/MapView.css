@@ -8,7 +8,7 @@
 
 .map-view.with-sidebar {
   display: grid;
-  grid-template-columns: 1fr 380px; /* Map LEFT, Sidebar RIGHT like Propwire */
+  grid-template-columns: 1fr 420px; /* Map LEFT, Sidebar RIGHT like Propwire */
 }
 
 .map-view.with-sidebar .property-list-sidebar.collapsed {
@@ -315,13 +315,13 @@
 /* Responsive - Propwire style */
 @media (max-width: 1200px) {
   .map-view.with-sidebar {
-    grid-template-columns: 1fr 340px;
+    grid-template-columns: 1fr 380px;
   }
 }
 
 @media (max-width: 1024px) {
   .map-view.with-sidebar {
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: 1fr 360px;
   }
 }
 
@@ -336,7 +336,7 @@
     top: 0;
     bottom: 0;
     width: 100%;
-    max-width: 380px;
+    max-width: 420px;
     box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
   }
 }

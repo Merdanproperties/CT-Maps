@@ -1,0 +1,103 @@
+.connection-status {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.connection-status.healthy {
+  background: #10b981;
+  color: white;
+}
+
+.connection-status.error {
+  background: #ef4444;
+  color: white;
+}
+
+.connection-status-icon {
+  flex-shrink: 0;
+}
+
+.connection-status-icon.healthy {
+  color: white;
+}
+
+.connection-status-icon.error {
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+.connection-status-icon.checking {
+  color: white;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.connection-status-message {
+  flex: 1;
+}
+
+.connection-status-retry,
+.connection-status-diagnostics {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.connection-status-retry:hover,
+.connection-status-diagnostics:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.connection-status-diagnostics {
+  background: rgba(255, 255, 255, 0.25);
+  font-weight: 700;
+}

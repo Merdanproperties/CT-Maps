@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Download, FileText, FileJson } from 'lucide-react'
+import { Download, FileText, FileJson, FileSpreadsheet } from 'lucide-react'
 import { exportApi } from '../api/client'
 import './ExportButton.css'
 
@@ -28,7 +28,7 @@ export default function ExportButton({ filterType, filterParams, resultCount }: 
     }
   }, [])
 
-  const handleExport = async (format: 'csv' | 'json') => {
+  const handleExport = async (format: 'csv' | 'json' | 'excel') => {
     if (resultCount === 0) {
       alert('No results to export')
       return
@@ -47,15 +47,25 @@ export default function ExportButton({ filterType, filterParams, resultCount }: 
         Object.assign(params, filterParams)
       }
 
-      const blob = format === 'csv' 
-        ? await exportApi.exportCSV(params)
-        : await exportApi.exportJSON({ ...params, limit: 10000 })
+      let blob: Blob
+      let fileExtension: string
+      
+      if (format === 'csv') {
+        blob = await exportApi.exportCSV(params)
+        fileExtension = 'csv'
+      } else if (format === 'excel') {
+        blob = await exportApi.exportExcel(params)
+        fileExtension = 'xlsx'
+      } else {
+        blob = await exportApi.exportJSON({ ...params, limit: 10000 })
+        fileExtension = 'json'
+      }
 
       // Create download link
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `ct_properties_${new Date().toISOString().split('T')[0]}.${format}`
+      a.download = `ct_properties_${new Date().toISOString().split('T')[0]}.${fileExtension}`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
@@ -93,6 +103,17 @@ export default function ExportButton({ filterType, filterParams, resultCount }: 
           >
             <FileText size={16} />
             Export as CSV
+          </button>
+          <button
+            className="export-option"
+            onClick={() => {
+              handleExport('excel')
+              document.getElementById('export-menu')?.classList.remove('show')
+            }}
+            disabled={isExporting}
+          >
+            <FileSpreadsheet size={16} />
+            Export as Excel
           </button>
           <button
             className="export-option"
