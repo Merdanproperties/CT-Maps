@@ -22,6 +22,66 @@ L.Icon.Default.mergeOptions({
 
 // MapBoundsUpdater removed - not needed for basic functionality
 
+// Component to initialize map reference and set up event listeners
+function MapInitializer({ 
+  mapRef, 
+  setMapBounds, 
+  setIsMapReady, 
+  setCenter, 
+  setZoom, 
+  mapUpdatingRef 
+}: { 
+  mapRef: React.MutableRefObject<L.Map | null>,
+  setMapBounds: (bounds: { north: number; south: number; east: number; west: number }) => void,
+  setIsMapReady: (ready: boolean) => void,
+  setCenter: (center: [number, number]) => void,
+  setZoom: (zoom: number) => void,
+  mapUpdatingRef: React.MutableRefObject<boolean>
+}) {
+  const map = useMap()
+  
+  useEffect(() => {
+    mapRef.current = map
+    
+    // Mark map as ready immediately so bbox queries can work
+    // Also set initial bounds
+    const initialBounds = map.getBounds()
+    setMapBounds({
+      north: initialBounds.getNorth(),
+      south: initialBounds.getSouth(),
+      east: initialBounds.getEast(),
+      west: initialBounds.getWest(),
+    })
+    setIsMapReady(true)
+    
+    // Only listen to user-initiated moves, not programmatic ones
+    let isUserMove = true
+    
+    map.on('movestart', () => {
+      isUserMove = !mapUpdatingRef.current
+    })
+    
+    map.on('moveend', () => {
+      if (isUserMove && !mapUpdatingRef.current) {
+        const center = map.getCenter()
+        setCenter([center.lat, center.lng])
+        setZoom(map.getZoom())
+      }
+      mapUpdatingRef.current = false
+      isUserMove = true
+    })
+    
+    map.on('zoomend', () => {
+      if (isUserMove && !mapUpdatingRef.current) {
+        const zoom = map.getZoom()
+        setZoom(zoom)
+      }
+    })
+  }, [map, mapRef, setMapBounds, setIsMapReady, setCenter, setZoom, mapUpdatingRef])
+  
+  return null
+}
+
 // Component to update map view when center/zoom changes
 function MapUpdater({ center, zoom, skipUpdate, onUpdate }: { 
   center: [number, number], 
@@ -264,17 +324,17 @@ export default function MapView() {
   // Show property list when we have search criteria
   useEffect(() => {
     if (filterParams.municipality || (searchQuery && searchQuery.trim().length > 0) || filterType) {
-      setShowPropertyList(true)
-    }
+        setShowPropertyList(true)
+      } 
   }, [filterParams.municipality, searchQuery, filterType])
 
   // Track analytics when data changes
   useEffect(() => {
     if (data && data.total > 0) {
-      analyticsApi.trackSearch({
-        filter_type: filterType || undefined,
+           analyticsApi.trackSearch({
+             filter_type: filterType || undefined,
         result_count: data.total || 0,
-      }).catch(() => {})
+           }).catch(() => {})
     }
   }, [data, filterType])
 
@@ -854,47 +914,19 @@ export default function MapView() {
           center={center}
           zoom={zoom}
           style={{ width: '100%', height: '100%' }}
-          whenReady={(map: any) => {
-            const leafletMap = map.target
-            mapRef.current = leafletMap // Store map reference
-            
-            // Mark map as ready immediately so bbox queries can work
-            // Also set initial bounds
-            const initialBounds = leafletMap.getBounds()
-            setMapBounds({
-              north: initialBounds.getNorth(),
-              south: initialBounds.getSouth(),
-              east: initialBounds.getEast(),
-              west: initialBounds.getWest(),
-            })
-            setIsMapReady(true)
-            
-            // Only listen to user-initiated moves, not programmatic ones
-            let isUserMove = true
-            
-            leafletMap.on('movestart', () => {
-              isUserMove = !mapUpdatingRef.current
-            })
-            
-            leafletMap.on('moveend', () => {
-              if (isUserMove && !mapUpdatingRef.current) {
-                const center = leafletMap.getCenter()
-                setCenter([center.lat, center.lng])
-                setZoom(leafletMap.getZoom())
-              }
-              mapUpdatingRef.current = false
-              isUserMove = true
-            })
-            
-            leafletMap.on('zoomend', () => {
-              if (isUserMove && !mapUpdatingRef.current) {
-                const zoom = leafletMap.getZoom()
-                setZoom(zoom)
-                // Bounds will be updated by MapBoundsUpdater component
-              }
-            })
+          whenReady={() => {
+            // Map initialization handled by MapInitializer component
+              setIsMapReady(true)
           }}
         >
+        <MapInitializer
+          mapRef={mapRef}
+          setMapBounds={setMapBounds}
+          setIsMapReady={setIsMapReady}
+          setCenter={setCenter}
+          setZoom={setZoom}
+          mapUpdatingRef={mapUpdatingRef}
+        />
         <MapUpdater 
           center={center} 
           zoom={zoom} 

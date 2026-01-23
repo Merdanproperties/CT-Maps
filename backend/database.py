@@ -17,7 +17,9 @@ settings = Settings()
 
 engine = create_engine(
     settings.database_url,
-    pool_pre_ping=True,
+    pool_size=10,  # Support parallel workers
+    max_overflow=20,  # Allow additional connections during peak load
+    pool_pre_ping=True,  # Verify connections before using
     echo=False
 )
 

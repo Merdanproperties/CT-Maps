@@ -15,6 +15,8 @@ import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from dotenv import load_dotenv
+from multiprocessing import Pool, cpu_count, Manager
+import multiprocessing
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -211,14 +213,20 @@ def match_and_combine(cleaned_df: pd.DataFrame, raw_lookup: Dict[str, List[Dict]
     Match cleaned file records with raw CSV data by normalized address
     Returns list of combined records
     """
-    print("\nMatching records between cleaned file and raw CSV...")
+    print(f"\n{'='*60}")
+    print("Matching records between cleaned file and raw CSV...")
+    print(f"{'='*60}")
     
     combined_records = []
     matched_count = 0
     unmatched_count = 0
     ambiguous_count = 0
+    total_rows = len(cleaned_df)
     
     for idx, cleaned_row in cleaned_df.iterrows():
+        # Show progress every 1000 records
+        if (idx + 1) % 1000 == 0 or (idx + 1) == total_rows:
+            print(f"  Matching progress: {idx + 1:,}/{total_rows:,} ({((idx + 1)/total_rows)*100:.1f}%)")
         norm_addr = cleaned_row['normalized_address']
         norm_owner = cleaned_row.get('normalized_owner', '')
         
@@ -281,9 +289,11 @@ def match_and_combine(cleaned_df: pd.DataFrame, raw_lookup: Dict[str, List[Dict]
         
         combined_records.append(combined)
     
-    print(f"  ✅ Matched: {matched_count}")
-    print(f"  ⚠️  Ambiguous (multiple addresses): {ambiguous_count}")
-    print(f"  ❌ Unmatched: {unmatched_count}")
+    print(f"\nMatching Results:")
+    print(f"  ✅ Matched: {matched_count:,} ({matched_count/total_rows*100:.1f}%)")
+    print(f"  ⚠️  Ambiguous (multiple addresses): {ambiguous_count:,}")
+    print(f"  ❌ Unmatched: {unmatched_count:,} ({unmatched_count/total_rows*100:.1f}%)")
+    print(f"{'='*60}")
     
     return combined_records
 
@@ -489,10 +499,79 @@ def map_to_database_fields(combined_record: Dict) -> Dict:
     
     return db_record
 
+def build_property_lookups(db: Session, municipality: str) -> Tuple[Dict[str, int], Dict[str, List[int]]]:
+    """
+    Build lookup dictionaries once, use for all records
+    Returns: (parcel_lookup, address_lookup)
+    - parcel_lookup: parcel_id -> property_id
+    - address_lookup: normalized_address -> List[property_id] (may have multiple properties per address)
+    """
+    print(f"  Building property lookup dictionaries for {municipality}...")
+    # Use case-insensitive match to get all variations
+    properties = db.query(Property).filter(
+        Property.municipality.ilike(f"%{municipality}%")
+    ).all()
+    
+    parcel_lookup = {}  # parcel_id -> property_id
+    address_lookup = {}  # normalized_address -> List[property_id]
+    
+    for prop in properties:
+        prop_id = prop.id
+        
+        if prop.parcel_id:
+            parcel_lookup[str(prop.parcel_id)] = prop_id
+        
+        if prop.address:
+            norm_addr = normalize_address(prop.address)
+            if norm_addr:
+                # Handle multiple properties with same normalized address
+                if norm_addr not in address_lookup:
+                    address_lookup[norm_addr] = []
+                if prop_id not in address_lookup[norm_addr]:
+                    address_lookup[norm_addr].append(prop_id)
+    
+    print(f"  ✅ Built lookups: {len(parcel_lookup):,} parcel IDs, {len(address_lookup):,} addresses, {len(properties):,} properties")
+    return parcel_lookup, address_lookup
+
+def find_property_fast(record: Dict, parcel_lookup: Dict[str, int], 
+                      address_lookup: Dict[str, int]) -> Optional[int]:
+    """
+    Find property ID using pre-built lookups (no DB queries)
+    Returns property_id if found, None otherwise
+    Note: address_lookup contains single int (serialized for multiprocessing)
+    """
+    parcel_id = record.get('parcel_id')
+    address = record.get('address', '')
+    
+    # Try parcel_id first
+    if parcel_id:
+        parcel_id_str = str(parcel_id).strip()
+        if parcel_id_str in parcel_lookup:
+            return parcel_lookup[parcel_id_str]
+    
+    # Try address match
+    if address:
+        norm_addr = normalize_address(address)
+        if norm_addr:
+            # Exact match
+            if norm_addr in address_lookup:
+                return address_lookup[norm_addr]
+            
+            # Try partial match (one address contains the other)
+            for lookup_addr, prop_id in address_lookup.items():
+                if norm_addr and lookup_addr:
+                    if norm_addr in lookup_addr or lookup_addr in norm_addr:
+                        # Make sure it's not too short (avoid matching "1" to "100")
+                        if len(norm_addr) >= 5 and len(lookup_addr) >= 5:
+                            return prop_id
+    
+    return None
+
 def find_property_in_database(db: Session, parcel_id: Optional[str], address: str, municipality: str) -> Optional[Property]:
     """
     Find property in database by parcel_id (preferred) or address and municipality
     Note: CSV Parcel ID may be CAMA internal ID, not the same as database parcel_id
+    This function is kept for backward compatibility but should use find_property_fast() with pre-built lookups
     """
     # Try parcel_id match first (only if it looks like a database parcel_id format)
     # Database parcel_ids are like "134-41A", CSV Parcel IDs are just numbers
@@ -537,31 +616,24 @@ def find_property_in_database(db: Session, parcel_id: Optional[str], address: st
     
     return None
 
-def import_to_database(combined_records: List[Dict], db: Session, municipality: str, dry_run: bool = False):
+def process_chunk_worker(args: Tuple) -> List[Dict]:
     """
-    Import combined records to database
+    Process a chunk of records in parallel
+    Returns list of update dictionaries ready for bulk_update_mappings
     """
-    print(f"\nImporting {len(combined_records)} records to database...")
-    if dry_run:
-        print("  🔍 DRY RUN MODE - No changes will be saved")
+    chunk, lookups, municipality_name = args
+    parcel_lookup, address_lookup_serializable = lookups
+    updates = []
     
-    imported_count = 0
-    updated_count = 0
-    error_count = 0
-    
-    for i, record in enumerate(combined_records, 1):
-        if i % 100 == 0:
-            print(f"  Progress: {i}/{len(combined_records)} ({i/len(combined_records)*100:.1f}%)")
-        
+    for record in chunk:
         try:
             # Map to database fields
             db_record = map_to_database_fields(record)
             
             if not db_record.get('address'):
-                error_count += 1
                 continue
             
-            # Get parcel_id from combined record (set during matching)
+            # Get parcel_id from combined record
             parcel_id = record.get('parcel_id')
             if not parcel_id and 'raw_Parcel ID' in record:
                 parcel_id = str(record['raw_Parcel ID']).strip()
@@ -569,37 +641,236 @@ def import_to_database(combined_records: List[Dict], db: Session, municipality: 
             if parcel_id and parcel_id != 'nan' and parcel_id:
                 db_record['parcel_id'] = parcel_id
             
-            # Try to find existing property by parcel_id or address
-            existing = find_property_in_database(db, parcel_id, db_record['address'], municipality)
+            # Find property using pre-built lookups
+            property_id = find_property_fast(
+                {'parcel_id': parcel_id, 'address': db_record.get('address')},
+                parcel_lookup,
+                address_lookup_serializable
+            )
             
-            if existing:
-                # Update existing property
-                for key, value in db_record.items():
-                    if key not in ['parcel_id'] or not parcel_id:  # Don't update parcel_id unless we have a valid one
-                        setattr(existing, key, value)
-                updated_count += 1
-            else:
-                # Property not found - we can't create new properties without geometry
-                # Log this for manual review
-                error_count += 1
-                if error_count <= 10:  # Log first 10
-                    print(f"  ⚠️  Property not found in database: {db_record.get('address')} (Parcel ID: {parcel_id})")
-                continue
-            
-            if not dry_run:
-                db.commit()
-                imported_count += 1
-            
+            if property_id:
+                # Normalize municipality
+                db_record['municipality'] = municipality_name
+                # Add property ID for bulk update
+                db_record['id'] = property_id
+                # Remove parcel_id from update to avoid unique constraint violations
+                # parcel_id should not be changed during updates
+                if 'parcel_id' in db_record:
+                    del db_record['parcel_id']
+                updates.append(db_record)
         except Exception as e:
-            db.rollback()
-            error_count += 1
-            if i <= 10:  # Only log first 10 errors
-                print(f"  ⚠️  Error processing record {i}: {e}")
+            # Log error but continue processing
+            print(f"  ⚠️  Error in worker processing record: {e}")
+            continue
     
-    print(f"\n  ✅ Imported/Updated: {imported_count + updated_count}")
-    print(f"  ❌ Errors: {error_count}")
+    return updates
+
+def import_to_database(combined_records: List[Dict], db: Session, municipality: str, dry_run: bool = False, use_parallel: bool = True):
+    """
+    Import combined records to database using parallel processing and bulk updates
+    """
+    total_records = len(combined_records)
+    print(f"\n{'='*60}")
+    print(f"Importing {total_records:,} records to database...")
+    print(f"{'='*60}")
+    if dry_run:
+        print("  🔍 DRY RUN MODE - No changes will be saved")
+    if use_parallel:
+        print("  🚀 Using parallel processing")
+    
+    start_time = datetime.now()
+    
+    if use_parallel:
+        # PARALLEL PROCESSING MODE
+        # Step 1: Pre-build lookup dictionaries
+        print("\n  Step 1: Building property lookup dictionaries...")
+        parcel_lookup, address_lookup = build_property_lookups(db, municipality)
+        
+        # Convert address_lookup from List[int] to single int (take first match)
+        # This is needed for serialization in multiprocessing
+        # Note: address_lookup may have multiple properties per address, we take first
+        address_lookup_serializable = {}
+        for addr, prop_ids in address_lookup.items():
+            if isinstance(prop_ids, list):
+                if prop_ids:
+                    address_lookup_serializable[addr] = prop_ids[0]  # Take first match
+            else:
+                address_lookup_serializable[addr] = prop_ids
+        
+        lookups_serializable = (parcel_lookup, address_lookup_serializable)
+        
+        # Step 2: Split records into chunks for parallel processing
+        num_workers = min(cpu_count(), 8)  # Cap at 8 to avoid overwhelming database
+        chunk_size = max(100, len(combined_records) // num_workers)
+        chunks = [combined_records[i:i+chunk_size] 
+                  for i in range(0, len(combined_records), chunk_size)]
+        
+        print(f"\n  Step 2: Processing {len(chunks)} chunks with {num_workers} workers...")
+        print(f"  Chunk size: ~{chunk_size:,} records per chunk")
+        
+        # Step 3: Process chunks in parallel
+        all_updates = []
+        processed_count = 0
+        
+        with Pool(processes=num_workers) as pool:
+            # Prepare arguments for workers
+            worker_args = [(chunk, lookups_serializable, municipality) for chunk in chunks]
+            
+            # Process chunks and show progress
+            results = []
+            for i, result in enumerate(pool.imap(process_chunk_worker, worker_args), 1):
+                results.append(result)
+                processed_count += len(result)
+                percent = (processed_count / total_records) * 100
+                elapsed = (datetime.now() - start_time).total_seconds()
+                if elapsed > 0:
+                    rate = processed_count / elapsed
+                    remaining = (total_records - processed_count) / rate if rate > 0 else 0
+                    eta_min = remaining / 60
+                    eta_sec = remaining % 60
+                    print(f"  Progress: {i}/{len(chunks)} chunks | "
+                          f"{processed_count:,}/{total_records:,} records ({percent:.1f}%) | "
+                          f"Rate: {rate:.1f}/sec | ETA: {int(eta_min)}m {int(eta_sec)}s")
+                else:
+                    print(f"  Progress: {i}/{len(chunks)} chunks | {processed_count:,}/{total_records:,} records ({percent:.1f}%)")
+            
+            # Flatten results
+            all_updates = [item for sublist in results for item in sublist]
+        
+        print(f"\n  Step 3: Bulk updating {len(all_updates):,} properties...")
+        
+        # Step 4: Bulk update in batches
+        if not dry_run and all_updates:
+            BATCH_SIZE = 5000
+            updated_count = 0
+            for i in range(0, len(all_updates), BATCH_SIZE):
+                batch = all_updates[i:i+BATCH_SIZE]
+                try:
+                    db.bulk_update_mappings(Property, batch)
+                    db.commit()
+                    updated_count += len(batch)
+                    print(f"  ✅ Committed batch {i//BATCH_SIZE + 1}: {len(batch):,} updates (Total: {updated_count:,})")
+                except Exception as e:
+                    db.rollback()
+                    print(f"  ⚠️  Error committing batch {i//BATCH_SIZE + 1}: {e}")
+                    # Try individual updates for this batch (excluding parcel_id)
+                    for record in batch:
+                        try:
+                            prop_id = record['id']
+                            existing = db.query(Property).filter(Property.id == prop_id).first()
+                            if existing:
+                                for key, value in record.items():
+                                    # Skip id and parcel_id to avoid unique constraint violations
+                                    if key not in ['id', 'parcel_id']:
+                                        setattr(existing, key, value)
+                                updated_count += 1
+                        except Exception as e2:
+                            print(f"  ⚠️  Error updating property {record.get('id')}: {e2}")
+                    db.commit()
+        else:
+            updated_count = len(all_updates)
+        
+        error_count = total_records - len(all_updates)
+        
+    else:
+        # SEQUENTIAL PROCESSING MODE (fallback)
+        print("  Using sequential processing (slower)...")
+        imported_count = 0
+        updated_count = 0
+        error_count = 0
+        BATCH_SIZE = 100
+        
+        for i, record in enumerate(combined_records, 1):
+            progress_interval = 50 if total_records > 1000 else 10
+            if i % progress_interval == 0 or i == 1 or i == total_records:
+                elapsed = (datetime.now() - start_time).total_seconds()
+                processed = imported_count + updated_count + error_count
+                if processed > 0 and elapsed > 0:
+                    rate = processed / elapsed
+                    remaining = (total_records - processed) / rate if rate > 0 else 0
+                    percent = (processed / total_records) * 100
+                    eta_min = remaining / 60
+                    eta_sec = remaining % 60
+                    print(f"  Progress: {processed:,}/{total_records:,} ({percent:.1f}%) | "
+                          f"✅ {imported_count + updated_count:,} | ❌ {error_count:,} | "
+                          f"Rate: {rate:.1f}/sec | ETA: {int(eta_min)}m {int(eta_sec)}s")
+                else:
+                    percent = (i / total_records) * 100
+                    print(f"  Progress: {i:,}/{total_records:,} ({percent:.1f}%) | Processing...")
+            
+            try:
+                db_record = map_to_database_fields(record)
+                
+                if not db_record.get('address'):
+                    error_count += 1
+                    continue
+                
+                parcel_id = record.get('parcel_id')
+                if not parcel_id and 'raw_Parcel ID' in record:
+                    parcel_id = str(record['raw_Parcel ID']).strip()
+                
+                if parcel_id and parcel_id != 'nan' and parcel_id:
+                    db_record['parcel_id'] = parcel_id
+                
+                existing = find_property_in_database(db, parcel_id, db_record['address'], municipality)
+                
+                if existing:
+                    for key, value in db_record.items():
+                        if key not in ['parcel_id'] or not parcel_id:
+                            setattr(existing, key, value)
+                    updated_count += 1
+                else:
+                    error_count += 1
+                    if error_count <= 10:
+                        print(f"  ⚠️  Property not found: {db_record.get('address')} (Parcel ID: {parcel_id})")
+                    continue
+                
+                if not dry_run and (i % BATCH_SIZE == 0 or i == total_records):
+                    db.commit()
+                imported_count += 1
+                
+            except Exception as e:
+                db.rollback()
+                error_count += 1
+                if i <= 10:
+                    print(f"  ⚠️  Error processing record {i}: {e}")
+        
+        if not dry_run:
+            db.commit()
+    
+    # Step 5: Normalize municipality values
+    if not dry_run:
+        print("\n  Step 4: Normalizing municipality values...")
+        try:
+            db.execute(
+                text("UPDATE properties SET municipality = :municipality "
+                     "WHERE municipality ILIKE :pattern"),
+                {"municipality": municipality, "pattern": f"%{municipality}%"}
+            )
+            db.commit()
+            print(f"  ✅ Normalized all {municipality} municipality values")
+        except Exception as e:
+            print(f"  ⚠️  Error normalizing municipality: {e}")
+            db.rollback()
+    
+    elapsed_total = (datetime.now() - start_time).total_seconds()
+    print(f"\n{'='*60}")
+    print(f"Import Summary:")
+    if use_parallel:
+        print(f"  ✅ Updated: {len(all_updates):,}")
+        print(f"  ❌ Not found: {error_count:,}")
+    else:
+        print(f"  ✅ Imported/Updated: {imported_count + updated_count:,}")
+        print(f"  ❌ Errors: {error_count:,}")
+    if elapsed_total > 0:
+        print(f"  ⏱️  Total time: {elapsed_total/60:.1f} minutes ({elapsed_total:.1f} seconds)")
+        if use_parallel:
+            print(f"  📊 Average rate: {len(all_updates)/elapsed_total:.1f} records/second")
+        else:
+            print(f"  📊 Average rate: {(imported_count + updated_count)/elapsed_total:.1f} records/second")
     if dry_run:
         print("  🔍 This was a dry run - no actual changes were made")
+    print(f"{'='*60}")
 
 def generate_coverage_report(db: Session, municipality: str, output_file: str):
     """
@@ -660,11 +931,16 @@ def main():
     parser = argparse.ArgumentParser(description='Import Bridgeport 2025 CAMA data')
     parser.add_argument('--limit', type=int, help='Limit number of records to import (for testing)')
     parser.add_argument('--dry-run', action='store_true', help='Dry run mode - no database changes')
+    parser.add_argument('--parallel', action='store_true', default=True, help='Use parallel processing (default: True)')
+    parser.add_argument('--no-parallel', dest='parallel', action='store_false', help='Disable parallel processing')
     args = parser.parse_args()
     
-    print("=" * 60)
+    start_time = datetime.now()
+    
+    print("\n" + "=" * 60)
     print("Bridgeport 2025 CAMA Data Import - Hybrid Approach")
     print("=" * 60)
+    print(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     
     if args.dry_run:
         print("🔍 DRY RUN MODE - No database changes will be made")
@@ -685,15 +961,19 @@ def main():
         combined_records = match_and_combine(cleaned_df, raw_lookup)
         
         # Step 4: Import to database
-        import_to_database(combined_records, db, MUNICIPALITY, dry_run=args.dry_run)
+        import_to_database(combined_records, db, MUNICIPALITY, dry_run=args.dry_run, use_parallel=args.parallel)
         
         # Step 5: Generate coverage report
         if not args.dry_run:
             report_file = f"logs/bridgeport_cama_coverage_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             generate_coverage_report(db, MUNICIPALITY, report_file)
         
+        end_time = datetime.now()
+        elapsed = (end_time - start_time).total_seconds()
         print("\n" + "=" * 60)
         print("✅ Import completed successfully!")
+        print(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Total elapsed time: {elapsed/60:.1f} minutes ({elapsed:.1f} seconds)")
         print("=" * 60)
         
     except Exception as e:
