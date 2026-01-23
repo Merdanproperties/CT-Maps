@@ -854,10 +854,9 @@ export default function MapView() {
           center={center}
           zoom={zoom}
           style={{ width: '100%', height: '100%' }}
-          whenReady={() => {
-            if (mapRef.current) {
-              // Map is ready, reference is already set
-            }
+          whenReady={(map: any) => {
+            const leafletMap = map.target
+            mapRef.current = leafletMap // Store map reference
             
             // Mark map as ready immediately so bbox queries can work
             // Also set initial bounds
@@ -868,7 +867,7 @@ export default function MapView() {
               east: initialBounds.getEast(),
               west: initialBounds.getWest(),
             })
-              setIsMapReady(true)
+            setIsMapReady(true)
             
             // Only listen to user-initiated moves, not programmatic ones
             let isUserMove = true
