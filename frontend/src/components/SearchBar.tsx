@@ -109,6 +109,9 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
           : null
         navState.zoom = 18
         navState.address = suggestion.value
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:106',message:'Address suggestion selected',data:{address:suggestion.value,suggestionType:suggestion.type,centerLat:suggestion.center_lat,centerLng:suggestion.center_lng,navCenter:navState.center,count:suggestion.count},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
       }
       
       console.log('🧭 Navigating with state:', navState)

@@ -1,0 +1,20 @@
+DOCKER INSTALLATION INSTRUCTIONS
+================================
+
+1. Download Docker Desktop for Mac:
+   https://www.docker.com/products/docker-desktop/
+
+2. Open the downloaded .dmg file
+
+3. Drag Docker to Applications folder
+
+4. Open Docker Desktop from Applications
+
+5. Complete the initial setup wizard
+
+6. Wait for Docker to start (whale icon in menu bar)
+
+7. Verify installation by running:
+   docker --version
+
+Once Docker is installed, we can proceed with Nominatim setup.

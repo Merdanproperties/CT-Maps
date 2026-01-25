@@ -27,7 +27,7 @@ async def search_properties(
     max_lot_size: Optional[float] = Query(None, description="Maximum lot size in square feet"),
     bbox: Optional[str] = Query(None, description="Bounding box: min_lng,min_lat,max_lng,max_lat"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=2000),  # Balanced limit: 2k properties ~1.6MB
     db: Session = Depends(get_db)
 ):
     """Search properties with various filters"""

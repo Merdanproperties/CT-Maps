@@ -34,7 +34,7 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
 
   // Build base search params
   const buildSearchParams = (baseParams: any = {}) => {
-    const searchParams: any = { ...baseParams, page_size: 500 }
+    const searchParams: any = { ...baseParams, page_size: 2000 }  // Balanced limit
     if (filterParams.min_value) searchParams.min_value = filterParams.min_value
     if (filterParams.max_value) searchParams.max_value = filterParams.max_value
     if (filterParams.property_type) searchParams.property_type = filterParams.property_type
@@ -57,7 +57,7 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
 
   // Priority 3: Filter type (lead types)
   if (filterType) {
-    const defaultPageSize = 500
+    const defaultPageSize = 2000  // Balanced: ~1.6MB response, good performance
     let filterResult: FilterResponse
     switch (filterType) {
       case 'high-equity':
@@ -78,7 +78,7 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
       default:
         // Fallback to bbox search for unknown filter types
         if (bbox) {
-          return await propertyApi.search({ bbox, page_size: 500 })
+          return await propertyApi.search({ bbox, page_size: 2000 })
         }
         throw new Error(`Unknown filter type: ${filterType}`)
     }
@@ -107,11 +107,11 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
 
   // Priority 5: Default bbox search (show properties in viewport)
   if (bbox) {
-    return await propertyApi.search({ bbox, page_size: 500 })
+    return await propertyApi.search({ bbox, page_size: 2000 })  // Balanced limit: ~1.6MB per request
   }
 
   // No valid query - return empty result
-  return { properties: [], total: 0, page: 1, page_size: 500 }
+  return { properties: [], total: 0, page: 1, page_size: 2000 }
 }
 
 /**
@@ -152,7 +152,7 @@ export function usePropertyQuery(params: PropertyQueryParams) {
     queryFn: async ({ signal }) => {
       // Check if cancelled
       if (signal?.aborted) {
-        return { properties: [], total: 0, page: 1, page_size: 500 }
+        return { properties: [], total: 0, page: 1, page_size: 2000 }
       }
 
       try {
@@ -188,14 +188,14 @@ export function usePropertyQuery(params: PropertyQueryParams) {
 
         // Check if cancelled after API call
         if (signal?.aborted) {
-          return { properties: [], total: 0, page: 1, page_size: 500 }
+          return { properties: [], total: 0, page: 1, page_size: 2000 }
         }
 
         return result
       } catch (error: any) {
         // Handle cancellation gracefully
         if (signal?.aborted || error?.message?.includes('cancelled')) {
-          return { properties: [], total: 0, page: 1, page_size: 500 }
+          return { properties: [], total: 0, page: 1, page_size: 2000 }
         }
         throw error
       }

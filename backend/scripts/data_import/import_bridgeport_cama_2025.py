@@ -56,6 +56,10 @@ def normalize_address(addr: str) -> str:
         r'\bPL\b': 'PLACE',
         r'\bBLVD\b': 'BOULEVARD',
         r'\bPKWY\b': 'PARKWAY',
+        r'\bE\b': 'EAST',  # E -> EAST
+        r'\bW\b': 'WEST',  # W -> WEST
+        r'\bN\b': 'NORTH',  # N -> NORTH
+        r'\bS\b': 'SOUTH',  # S -> SOUTH
     }
     
     for pattern, replacement in replacements.items():
@@ -136,35 +140,12 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
     """
     Read raw CSV file, extract needed columns, create lookup by normalized address
     Returns: (dataframe, lookup_dict)
+    Handles both Bridgeport format (Property Address, Parcel ID) and Torrington format (Location, PID)
     """
     print(f"Reading raw CSV file: {file_path}")
     
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Raw CSV file not found: {file_path}")
-    
-    # Columns we need from raw CSV
-    needed_columns = [
-        'Parcel ID',
-        'Property Address',
-        'Assessed Total',
-        'Assessed Building',
-        'Assessed Land',
-        'Valuation Year',
-        'Living Area',
-        'Actual Year Built',
-        'Number of Bedroom',
-        'Number of Bathrooms',
-        'Stories',
-        'Total Rooms',
-        'Roof Cover Description',
-        'Roof Structure Description',
-        'Heat Type Description',
-        'AC Type Description',
-        'Number of Fireplaces',
-        'Exterior Wall 1 Description',
-        'Interior Wall 1 Description',
-        'Owner',  # For secondary matching
-    ]
     
     # Read CSV
     df = pd.read_csv(file_path, low_memory=False)
@@ -172,21 +153,85 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
     print(f"  Loaded {len(df)} records from raw CSV")
     print(f"  Total columns in CSV: {len(df.columns)}")
     
-    # Check which columns exist
-    available_columns = [col for col in needed_columns if col in df.columns]
-    missing_columns = [col for col in needed_columns if col not in df.columns]
+    # Map column names - handle both Bridgeport and Torrington formats
+    column_mapping = {}
     
-    if missing_columns:
-        print(f"  ⚠️  Missing columns: {missing_columns}")
+    # Address column mapping
+    if 'Property Address' in df.columns:
+        column_mapping['Property Address'] = 'Property Address'
+        address_col = 'Property Address'
+    elif 'Location' in df.columns:
+        column_mapping['Property Address'] = 'Location'
+        address_col = 'Location'
+        df['Property Address'] = df['Location']  # Create alias
+    else:
+        raise ValueError(f"Property Address column not found in raw CSV. Available columns: {list(df.columns)[:20]}")
     
-    # Select only available columns
-    df_selected = df[available_columns].copy()
+    # Parcel ID column mapping
+    if 'Parcel ID' in df.columns:
+        column_mapping['Parcel ID'] = 'Parcel ID'
+        parcel_id_col = 'Parcel ID'
+    elif 'PID' in df.columns:
+        column_mapping['Parcel ID'] = 'PID'
+        parcel_id_col = 'PID'
+        df['Parcel ID'] = df['PID']  # Create alias
+    else:
+        print(f"  ⚠️  Parcel ID column not found, will use index")
+        parcel_id_col = None
+        df['Parcel ID'] = df.index.astype(str)
+    
+    # Map other columns with fallbacks
+    column_mappings = {
+        'Assessed Total': ['Assessed Total'],
+        'Assessed Building': ['Assessed Building'],
+        'Assessed Land': ['Assessed Land'],
+        'Valuation Year': ['Valuation Year'],
+        'Living Area': ['Living Area', 'Gross Area of Primary Building'],
+        'Actual Year Built': ['Actual Year Built', 'AYB', 'EYB'],
+        'Number of Bedroom': ['Number of Bedroom'],
+        'Number of Bathrooms': ['Number of Bathrooms', 'Number of Baths'],
+        'Stories': ['Stories'],
+        'Total Rooms': ['Total Rooms'],
+        'Roof Cover Description': ['Roof Cover Description'],
+        'Roof Structure Description': ['Roof Structure Description'],
+        'Heat Type Description': ['Heat Type Description'],
+        'AC Type Description': ['AC Type Description', 'Ac Type Description'],
+        'Number of Fireplaces': ['Number of Fireplaces', 'No of Fireplaces'],
+        'Exterior Wall 1 Description': ['Exterior Wall 1 Description', 'Ext Wall1 Description'],
+        'Interior Wall 1 Description': ['Interior Wall 1 Description', 'Int Wall1 Description'],
+        'Owner': ['Owner'],
+    }
+    
+    # Build column selection list
+    selected_columns = [address_col, parcel_id_col] if parcel_id_col else [address_col]
+    available_mappings = {}
+    
+    for target_col, possible_cols in column_mappings.items():
+        for possible_col in possible_cols:
+            if possible_col in df.columns:
+                available_mappings[target_col] = possible_col
+                if possible_col not in selected_columns:
+                    selected_columns.append(possible_col)
+                break
+    
+    # Select columns
+    df_selected = df[selected_columns].copy()
+    
+    # Rename to standard names
+    rename_map = {address_col: 'Property Address'}
+    if parcel_id_col:
+        rename_map[parcel_id_col] = 'Parcel ID'
+    for target_col, source_col in available_mappings.items():
+        if source_col != target_col:
+            rename_map[source_col] = target_col
+    
+    df_selected.rename(columns=rename_map, inplace=True)
     
     # Normalize Property Address for matching
     if 'Property Address' in df_selected.columns:
         df_selected['normalized_address'] = df_selected['Property Address'].apply(normalize_address)
     else:
-        raise ValueError("Property Address column not found in raw CSV")
+        raise ValueError("Property Address column not found after mapping")
     
     # Normalize owner name
     if 'Owner' in df_selected.columns:
@@ -642,19 +687,37 @@ def process_chunk_worker(args: Tuple) -> List[Dict]:
                 db_record['parcel_id'] = parcel_id
             
             # Find property using pre-built lookups
-            property_id = find_property_fast(
-                {'parcel_id': parcel_id, 'address': db_record.get('address')},
-                parcel_lookup,
-                address_lookup_serializable
-            )
+            # Try address first (most reliable), then parcel_id
+            property_id = None
+            cama_address = db_record.get('address')
+            
+            if cama_address:
+                # Try to find by address (even if DB property doesn't have address yet)
+                norm_addr = normalize_address(cama_address)
+                if norm_addr and norm_addr in address_lookup_serializable:
+                    property_id = address_lookup_serializable[norm_addr]
+                else:
+                    # Try partial address match
+                    for lookup_addr, prop_id in address_lookup_serializable.items():
+                        if norm_addr and lookup_addr:
+                            if norm_addr in lookup_addr or lookup_addr in norm_addr:
+                                if len(norm_addr) >= 5 and len(lookup_addr) >= 5:
+                                    property_id = prop_id
+                                    break
+            
+            # Fall back to parcel_id match if address didn't work
+            if not property_id and parcel_id:
+                parcel_id_str = str(parcel_id).strip()
+                if parcel_id_str in parcel_lookup:
+                    property_id = parcel_lookup[parcel_id_str]
             
             if property_id:
                 # Normalize municipality
                 db_record['municipality'] = municipality_name
                 # Add property ID for bulk update
                 db_record['id'] = property_id
+                # Include address in update (will populate None addresses)
                 # Remove parcel_id from update to avoid unique constraint violations
-                # parcel_id should not be changed during updates
                 if 'parcel_id' in db_record:
                     del db_record['parcel_id']
                 updates.append(db_record)
@@ -700,7 +763,7 @@ def import_to_database(combined_records: List[Dict], db: Session, municipality: 
         lookups_serializable = (parcel_lookup, address_lookup_serializable)
         
         # Step 2: Split records into chunks for parallel processing
-        num_workers = min(cpu_count(), 8)  # Cap at 8 to avoid overwhelming database
+        num_workers = cpu_count()  # Use all available CPU cores for maximum performance
         chunk_size = max(100, len(combined_records) // num_workers)
         chunks = [combined_records[i:i+chunk_size] 
                   for i in range(0, len(combined_records), chunk_size)]

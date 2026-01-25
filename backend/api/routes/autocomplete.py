@@ -2,6 +2,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, distinct, or_
 from typing import List, Optional
+import json
+from datetime import datetime
+from pathlib import Path
 from database import get_db
 from models import Property
 from pydantic import BaseModel
@@ -33,12 +36,13 @@ async def autocomplete(
     search_term = f"%{q}%"
     
     # Get matching addresses
-    address_results = db.query(
+    # Use first property's centroid instead of averaging all (more accurate for specific addresses)
+    # This prevents incorrect centers when multiple properties with same address exist in different locations
+    address_subquery = db.query(
         Property.address,
         Property.municipality,
-        func.count(Property.id).label('count'),
-        func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
-        func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
+        func.min(Property.id).label('first_property_id'),
+        func.count(Property.id).label('count')
     ).filter(
         Property.address.ilike(search_term),
         Property.address.isnot(None),
@@ -48,11 +52,45 @@ async def autocomplete(
         Property.municipality
     ).having(
         func.count(Property.id) > 0
+    ).subquery()
+    
+    address_results = db.query(
+        address_subquery.c.address,
+        address_subquery.c.municipality,
+        address_subquery.c.count,
+        func.ST_Y(func.ST_Centroid(Property.geometry)).label('center_lat'),
+        func.ST_X(func.ST_Centroid(Property.geometry)).label('center_lng')
+    ).join(
+        Property, Property.id == address_subquery.c.first_property_id
     ).order_by(
-        func.count(Property.id).desc()
+        address_subquery.c.count.desc()
     ).limit(limit).all()
     
     for result in address_results:
+        # Log for debugging Bridgeport vs Torrington
+        log_data = {
+            "location": "autocomplete.py:55",
+            "message": "Address autocomplete result",
+            "data": {
+                "query": q,
+                "address": result.address,
+                "municipality": result.municipality,
+                "count": result.count,
+                "center_lat": float(result.center_lat) if result.center_lat else None,
+                "center_lng": float(result.center_lng) if result.center_lng else None,
+            },
+            "timestamp": int(datetime.now().timestamp() * 1000),
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "F"
+        }
+        try:
+            log_file = Path("/Users/jacobmermelstein/Desktop/CT Maps/.cursor/debug.log")
+            with open(log_file, "a") as f:
+                f.write(json.dumps(log_data) + "\n")
+        except:
+            pass  # Don't fail if logging fails
+        
         suggestions.append(AutocompleteSuggestion(
             type='address',
             value=result.address,

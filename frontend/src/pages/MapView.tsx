@@ -190,7 +190,7 @@ export default function MapView() {
       // If address provided, search for the property and center on its geometry
       else if (address) {
         // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:146',message:'Address path triggered',data:{address,newCenter,newZoom},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:191',message:'Address path triggered',data:{address,newCenter,newZoom,centerType:typeof newCenter,centerIsArray:Array.isArray(newCenter)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
         // #endregion
         console.log('🔍 Searching for address from dropdown:', address)
         // Clear search query and filters first
@@ -200,15 +200,38 @@ export default function MapView() {
         setShowPropertyList(false)
         // Don't clear selectedProperty here - wait until we find the new one
         
-        propertyApi.search({ q: address, page_size: 20 }).then(result => {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:203',message:'Search API call started',data:{searchAddress:address,autocompleteCenter:newCenter},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        propertyApi.search({ q: address, page_size: 50 }).then(result => {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:203',message:'Search API result',data:{total:result.total,propertiesCount:result.properties?.length,firstPropertyId:result.properties?.[0]?.id,firstPropertyAddress:result.properties?.[0]?.address,firstPropertyMunicipality:result.properties?.[0]?.municipality,allAddresses:result.properties?.map(p=>p.address),allMunicipalities:result.properties?.map(p=>p.municipality)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
           console.log('📦 Address search result:', result.total, 'properties found')
             if (result.properties && result.properties.length > 0) {
-            // Find exact match first, or use first result
-            const exactMatch = result.properties.find(p => 
-              p.address?.toLowerCase() === address.toLowerCase() ||
-              p.address?.toLowerCase().includes(address.toLowerCase())
-            ) || result.properties[0]
+            // Normalize address for better matching (remove common suffixes, case-insensitive)
+            const normalizeForMatch = (addr: string) => {
+              if (!addr) return ''
+              return addr.toLowerCase()
+                .replace(/\s+/g, ' ')
+                .replace(/\b(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|place|pl|boulevard|blvd|parkway|pkwy)\b/gi, '')
+                .trim()
+            }
             
+            const searchNormalized = normalizeForMatch(address)
+            
+            // Find exact match first, then partial match, then use first result
+            const exactMatch = result.properties.find(p => {
+              const propNormalized = normalizeForMatch(p.address || '')
+              return propNormalized === searchNormalized || 
+                     p.address?.toLowerCase() === address.toLowerCase() ||
+                     p.address?.toLowerCase().includes(address.toLowerCase()) ||
+                     address.toLowerCase().includes(p.address?.toLowerCase() || '')
+            }) || result.properties[0]
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:207',message:'Property match selected',data:{exactMatchId:exactMatch.id,exactMatchAddress:exactMatch.address,searchAddress:address,isExactMatch:exactMatch.address?.toLowerCase()===address.toLowerCase(),hasGeometry:!!exactMatch.geometry?.geometry,geometryType:exactMatch.geometry?.geometry?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
             console.log('✅ Found property:', exactMatch.id, exactMatch.address)
             // Set the selected property - this will show it in the sidebar
             setSelectedProperty(exactMatch)
@@ -216,12 +239,21 @@ export default function MapView() {
             
             // Center map on the property's actual geometry
             const geom = exactMatch.geometry?.geometry
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:218',message:'Before getCentroid',data:{hasGeom:!!geom,geomType:geom?.type,firstCoord:geom?.coordinates?.[0]?.[0],autocompleteCenter:newCenter},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             if (geom) {
               const centroid = getCentroid(geom)
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:220',message:'After getCentroid',data:{centroid,autocompleteCenter:newCenter,centroidLat:centroid?.[0],centroidLng:centroid?.[1],autocompleteLat:newCenter?.[0],autocompleteLng:newCenter?.[1]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
               if (centroid) {
                 console.log('📍 Centering map on property geometry:', centroid)
                 // Force map update by using a new array reference
                 const newCenter: [number, number] = [centroid[0], centroid[1]]
+                // #region agent log
+                fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:224',message:'Setting map center from centroid',data:{newCenter,centroid,zoom:18},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+                // #endregion
                 setCenter(newCenter)
                 setZoom(18)
                 
@@ -232,6 +264,9 @@ export default function MapView() {
                   east: centroid[1] + 0.005,
                   west: centroid[1] - 0.005
                 }
+                // #region agent log
+                fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:229',message:'Map bounds calculated',data:{bounds,centroid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+                // #endregion
                 
                 // Wait for map to update, then set bounds
                 setTimeout(() => {
@@ -240,28 +275,54 @@ export default function MapView() {
                 }, 500)
               } else if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
                 // Fallback to autocomplete center if geometry centroid fails
+                // #region agent log
+                fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:241',message:'Fallback to autocomplete center (no centroid)',data:{newCenter,newZoom},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
                 console.log('⚠️ No centroid, using autocomplete center')
                 setCenter([newCenter[0], newCenter[1]])
                 setZoom(newZoom || 18)
               }
             } else if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
               // Fallback to autocomplete center if no geometry
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:247',message:'Fallback to autocomplete center (no geometry)',data:{newCenter,newZoom},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+              // #endregion
               console.log('⚠️ No geometry, using autocomplete center')
               setCenter([newCenter[0], newCenter[1]])
               setZoom(newZoom || 18)
             }
           } else if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
-            // No property found, use autocomplete center
-            console.log('⚠️ No property found, using autocomplete center')
-            setCenter([newCenter[0], newCenter[1]])
-            setZoom(newZoom || 18)
+            // No property found, use autocomplete center but log warning
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:253',message:'Fallback to autocomplete center (no property found)',data:{newCenter,newZoom,searchAddress:address},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            console.warn('⚠️ No property found for address:', address, 'using autocomplete center:', newCenter)
+            // Verify autocomplete center is valid (within CT bounds approximately)
+            if (newCenter[0] >= 40.5 && newCenter[0] <= 42.0 && newCenter[1] >= -74.0 && newCenter[1] <= -71.5) {
+              setCenter([newCenter[0], newCenter[1]])
+              setZoom(newZoom || 18)
+            } else {
+              console.error('❌ Invalid autocomplete center coordinates:', newCenter)
+              // Fallback to CT center if autocomplete center is invalid
+              setCenter([41.6, -72.7])
+              setZoom(9)
+            }
           }
         }).catch(error => {
           console.error('❌ Error searching for address:', error)
-          // Fallback to autocomplete center on error
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:259',message:'Search API error',data:{error:error?.message,searchAddress:address,newCenter},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          // Fallback to autocomplete center on error, but validate it
           if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
-            setCenter([newCenter[0], newCenter[1]])
-            setZoom(newZoom || 18)
+            if (newCenter[0] >= 40.5 && newCenter[0] <= 42.0 && newCenter[1] >= -74.0 && newCenter[1] <= -71.5) {
+              setCenter([newCenter[0], newCenter[1]])
+              setZoom(newZoom || 18)
+            } else {
+              console.error('❌ Invalid autocomplete center, using CT center')
+              setCenter([41.6, -72.7])
+              setZoom(9)
+            }
           }
         })
         
@@ -614,23 +675,43 @@ export default function MapView() {
 
   // Calculate centroid of a geometry
   const getCentroid = (geometry: any): [number, number] | null => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:616',message:'getCentroid entry',data:{hasGeometry:!!geometry,geometryType:geometry?.type,hasCoordinates:!!geometry?.coordinates,firstCoord:geometry?.coordinates?.[0]?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (!geometry) return null
     
     if (geometry.type === 'Polygon' && geometry.coordinates?.[0]?.[0]) {
       const coords = geometry.coordinates[0]
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:620',message:'Polygon centroid calc',data:{coordsLength:coords.length,firstCoord:coords[0],secondCoord:coords[1],coordStructure:Array.isArray(coords[0])?coords[0].length:'not array'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       const [lng, lat] = coords.reduce(
         (acc: [number, number], coord: number[]) => [acc[0] + coord[0], acc[1] + coord[1]],
         [0, 0]
       )
-      return [lat / coords.length, lng / coords.length]
+      const result: [number, number] = [lat / coords.length, lng / coords.length]
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:625',message:'Polygon centroid result',data:{result,sumLng:lng,sumLat:lat,coordsCount:coords.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      return result
     } else if (geometry.type === 'MultiPolygon' && geometry.coordinates?.[0]?.[0]?.[0]) {
       const coords = geometry.coordinates[0][0]
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:627',message:'MultiPolygon centroid calc',data:{coordsLength:coords.length,firstCoord:coords[0],secondCoord:coords[1]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       const [lng, lat] = coords.reduce(
         (acc: [number, number], coord: number[]) => [acc[0] + coord[0], acc[1] + coord[1]],
         [0, 0]
       )
-      return [lat / coords.length, lng / coords.length]
+      const result: [number, number] = [lat / coords.length, lng / coords.length]
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:632',message:'MultiPolygon centroid result',data:{result,sumLng:lng,sumLat:lat,coordsCount:coords.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      return result
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:634',message:'getCentroid returning null',data:{geometryType:geometry?.type,hasCoordinates:!!geometry?.coordinates},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     return null
   }
 
