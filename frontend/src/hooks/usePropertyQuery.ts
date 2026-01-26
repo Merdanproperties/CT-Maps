@@ -25,6 +25,9 @@ export interface PropertyQueryParams {
     tax_amount_min?: number
     tax_amount_max?: number
     annual_tax?: string
+    owner_address?: string
+    owner_city?: string
+    owner_state?: string
   }
   searchQuery?: string
   bbox?: string
@@ -202,7 +205,10 @@ export function usePropertyQuery(params: PropertyQueryParams) {
       filterParams.time_since_sale !== undefined ||
       filterParams.tax_amount_min !== undefined ||
       filterParams.tax_amount_max !== undefined ||
-      filterParams.annual_tax !== undefined
+      filterParams.annual_tax !== undefined ||
+      filterParams.owner_address !== undefined ||
+      filterParams.owner_city !== undefined ||
+      filterParams.owner_state !== undefined
     ))
 
   const hasBbox = !!bbox || !!mapBounds || (!!center && !!zoom)

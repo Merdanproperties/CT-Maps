@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { propertyApi, Comment } from '../api/client'
+import { exportApi, Comment } from '../api/client'
 import { MessageSquare, Send, Loader2, Edit2, X, Check } from 'lucide-react'
 import './PropertyComments.css'
 
@@ -17,13 +17,13 @@ export default function PropertyComments({ propertyId }: PropertyCommentsProps) 
   // Fetch comments
   const { data: comments = [], isLoading } = useQuery({
     queryKey: ['property-comments', propertyId],
-    queryFn: () => propertyApi.getPropertyComments(propertyId),
+    queryFn: () => exportApi.getPropertyComments(propertyId),
     enabled: !!propertyId,
   })
 
   // Create comment mutation
   const createCommentMutation = useMutation({
-    mutationFn: (comment: string) => propertyApi.createPropertyComment(propertyId, comment),
+    mutationFn: (comment: string) => exportApi.createPropertyComment(propertyId, comment),
     onSuccess: () => {
       // Clear form
       setCommentText('')
@@ -39,7 +39,7 @@ export default function PropertyComments({ propertyId }: PropertyCommentsProps) 
   // Update comment mutation
   const updateCommentMutation = useMutation({
     mutationFn: ({ commentId, comment }: { commentId: number; comment: string }) =>
-      propertyApi.updatePropertyComment(propertyId, commentId, comment),
+      exportApi.updatePropertyComment(propertyId, commentId, comment),
     onSuccess: () => {
       setEditingId(null)
       setEditText('')
