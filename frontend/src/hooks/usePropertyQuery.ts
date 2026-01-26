@@ -52,6 +52,15 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
   // Build base search params
   const buildSearchParams = (baseParams: any = {}) => {
     const searchParams: any = { ...baseParams, page_size: 2000 }  // Balanced limit
+    // Always include municipality from filterParams if present (ensures it's preserved when other filters change)
+    // Convert array to string if needed (backend expects comma-separated string)
+    if (filterParams.municipality) {
+      searchParams.municipality = Array.isArray(filterParams.municipality) 
+        ? filterParams.municipality.join(',') 
+        : filterParams.municipality
+      // Explicitly exclude bbox when municipality is set to prevent showing properties outside the municipality
+      delete searchParams.bbox
+    }
     if (filterParams.min_value) searchParams.min_value = filterParams.min_value
     if (filterParams.max_value) searchParams.max_value = filterParams.max_value
     if (filterParams.property_type) searchParams.property_type = filterParams.property_type
@@ -74,18 +83,52 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
     if (filterParams.owner_address) searchParams.owner_address = filterParams.owner_address
     if (filterParams.owner_city) searchParams.owner_city = filterParams.owner_city
     if (filterParams.owner_state) searchParams.owner_state = filterParams.owner_state
+    
+    // Debug logging
+    if (filterParams.municipality) {
+      console.log('🔍 [buildSearchParams] Building params with municipality:', {
+        municipality: searchParams.municipality,
+        time_since_sale: searchParams.time_since_sale,
+        hasBbox: 'bbox' in searchParams,
+        bboxValue: searchParams.bbox,
+        allParams: { ...searchParams }
+      })
+    }
+    
     return searchParams
   }
 
   // Priority 1: Municipality filter
-  if (filterParams.municipality) {
-    const searchParams = buildSearchParams({ municipality: filterParams.municipality, page_size: 100 })
-    return await propertyApi.search(searchParams)
+  // Handle both string and array formats for municipality
+  const municipalityValue = Array.isArray(filterParams.municipality) 
+    ? (filterParams.municipality.length > 0 ? filterParams.municipality[0] : null)
+    : filterParams.municipality
+    
+  if (municipalityValue) {
+    // When municipality is set, explicitly exclude bbox to prevent showing properties outside the municipality
+    // The backend applies bbox filter after municipality filter, which causes incorrect results
+    // Convert array to string if needed (backend expects comma-separated string)
+    const municipalityParam = Array.isArray(filterParams.municipality) 
+      ? filterParams.municipality.join(',') 
+      : filterParams.municipality
+    const searchParams = buildSearchParams({ municipality: municipalityParam })
+    // Explicitly ensure bbox is not included (delete even if it doesn't exist)
+    delete searchParams.bbox
+    
+    // Remove any undefined/null values to prevent axios from sending them
+    const cleanParams: any = {}
+    for (const [key, value] of Object.entries(searchParams)) {
+      if (value !== undefined && value !== null && key !== 'bbox') {
+        cleanParams[key] = value
+      }
+    }
+    
+    return await propertyApi.search(cleanParams)
   }
 
   // Priority 2: Search query
   if (searchQuery && searchQuery.trim().length > 0) {
-    const searchParams = buildSearchParams({ q: searchQuery.trim(), page_size: 100 })
+    const searchParams = buildSearchParams({ q: searchQuery.trim() })
     return await propertyApi.search(searchParams)
   }
 
@@ -126,7 +169,7 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
     return result
   }
 
-  // Priority 4: Custom filters with bbox
+  // Priority 4: Custom filters (without bbox - show ALL matching properties, not just viewport)
   const hasCustomFilters = 
     filterParams.min_value !== undefined || 
     filterParams.max_value !== undefined || 
@@ -151,9 +194,28 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
     filterParams.owner_city !== undefined ||
     filterParams.owner_state !== undefined
 
-  if (hasCustomFilters && bbox) {
-    const searchParams = buildSearchParams({ bbox })
-    return await propertyApi.search(searchParams)
+  if (hasCustomFilters) {
+    // Don't include bbox when filters are active - show ALL matching properties
+    const searchParams = buildSearchParams()
+    // If municipality is set, explicitly exclude bbox
+    // Check both array and string formats
+    const hasMunicipality = filterParams.municipality && (
+      (Array.isArray(filterParams.municipality) && filterParams.municipality.length > 0) ||
+      (typeof filterParams.municipality === 'string' && filterParams.municipality.length > 0)
+    )
+    if (hasMunicipality) {
+      delete searchParams.bbox
+    }
+    
+    // Remove any undefined/null values to prevent axios from sending them
+    const cleanParams: any = {}
+    for (const [key, value] of Object.entries(searchParams)) {
+      if (value !== undefined && value !== null && key !== 'bbox') {
+        cleanParams[key] = value
+      }
+    }
+    
+    return await propertyApi.search(cleanParams)
   }
 
   // Priority 5: Default bbox search (show properties in viewport)
@@ -172,12 +234,21 @@ export function usePropertyQuery(params: PropertyQueryParams) {
   const { filterType, filterParams, searchQuery, bbox, mapBounds, center, zoom } = params
 
   // Create a stable query key
+  // When municipality is set, exclude mapBounds from query key to prevent map movements from triggering new queries
+  // Normalize municipality to string for consistent query key
+  const municipalityKey = filterParams?.municipality 
+    ? (Array.isArray(filterParams.municipality) 
+        ? filterParams.municipality.join(',') 
+        : filterParams.municipality)
+    : null
+    
   const queryKey = [
     'properties',
     filterType,
     JSON.stringify(filterParams),
     searchQuery,
-    mapBounds ? `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}` : null,
+    // Only include mapBounds in query key if municipality is NOT set (prevents bbox interference)
+    municipalityKey ? null : (mapBounds ? `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}` : null),
   ]
 
   // Determine if query should be enabled
@@ -211,11 +282,13 @@ export function usePropertyQuery(params: PropertyQueryParams) {
       filterParams.owner_state !== undefined
     ))
 
-  const hasBbox = !!bbox || !!mapBounds || (!!center && !!zoom)
+  // When municipality is set, don't use bbox/mapBounds for query enabling
+  // This prevents map movements from triggering queries when municipality filter is active
+  const hasBbox = filterParams?.municipality ? false : (!!bbox || !!mapBounds || (!!center && !!zoom))
 
   const enabled = hasSearchCriteria || hasBbox
 
-  return useQuery({
+  const queryResult = useQuery({
     queryKey,
     queryFn: async ({ signal }) => {
       // Check if cancelled
@@ -234,14 +307,20 @@ export function usePropertyQuery(params: PropertyQueryParams) {
           }
         }
 
-        // Calculate bbox if not provided
-        let calculatedBbox = bbox
-        if (!calculatedBbox && mapBounds) {
-          calculatedBbox = `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
-        } else if (!calculatedBbox && center && zoom) {
-          const latRange = 180 / Math.pow(2, zoom)
-          const lngRange = 360 / Math.pow(2, zoom)
-          calculatedBbox = `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
+        // When municipality is set, don't use bbox at all - municipality filter should be exclusive
+        // Calculate bbox only if municipality is NOT set
+        let calculatedBbox: string | undefined = bbox
+        if (!filterParams?.municipality) {
+          if (!calculatedBbox && mapBounds) {
+            calculatedBbox = `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
+          } else if (!calculatedBbox && center && zoom) {
+            const latRange = 180 / Math.pow(2, zoom)
+            const lngRange = 360 / Math.pow(2, zoom)
+            calculatedBbox = `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
+          }
+        } else {
+          // Municipality is set - explicitly don't use bbox
+          calculatedBbox = undefined
         }
 
         const result = await fetchProperties({
@@ -249,7 +328,7 @@ export function usePropertyQuery(params: PropertyQueryParams) {
           filterParams,
           searchQuery,
           bbox: calculatedBbox,
-          mapBounds,
+          mapBounds: filterParams?.municipality ? null : mapBounds, // Don't pass mapBounds when municipality is set
           center,
           zoom,
         })
@@ -269,11 +348,14 @@ export function usePropertyQuery(params: PropertyQueryParams) {
       }
     },
     enabled,
-    staleTime: 10000,
+    staleTime: filterParams?.municipality ? 0 : 10000, // Always consider data stale when municipality is set to force fresh queries
     refetchOnWindowFocus: false,
     retry: 1,
     retryDelay: 1000,
     gcTime: 300000, // Keep data in cache for 5 minutes
-    refetchOnMount: false,
+    refetchOnMount: filterParams?.municipality ? 'always' : true, // Always refetch on mount when municipality is set
+    placeholderData: undefined, // Don't use placeholder data - always fetch fresh
   })
+  
+  return queryResult
 }

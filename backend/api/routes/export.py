@@ -22,6 +22,10 @@ async def export_csv(
     property_type: Optional[str] = None,
     include_vacant: Optional[bool] = None,
     include_absentee: Optional[bool] = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    min_lot_size: Optional[float] = None,
+    max_lot_size: Optional[float] = None,
     db: Session = Depends(get_db)
 ):
     """Export properties to CSV"""
@@ -33,16 +37,38 @@ async def export_csv(
             Property.equity_estimate.isnot(None),
             Property.equity_estimate >= min_equity
         )
+    elif filter_type == "high-equity":
+        query = query.filter(
+            Property.equity_estimate.isnot(None),
+            Property.equity_estimate >= 50000
+        )
     elif filter_type == "vacant":
         query = query.filter(Property.is_vacant == 1)
     elif filter_type == "absentee-owners":
         query = query.filter(Property.is_absentee == 1)
+    elif filter_type == "recently-sold":
+        query = query.filter(Property.last_sale_date.isnot(None))
+    elif filter_type == "low-equity":
+        query = query.filter(
+            Property.equity_estimate.isnot(None),
+            Property.equity_estimate <= 10000
+        )
     
     if municipality:
         query = query.filter(Property.municipality.ilike(f"%{municipality}%"))
     
     if property_type:
-        query = query.filter(Property.property_type == property_type)
+        query = query.filter(Property.property_type.ilike(f"%{property_type}%"))
+    
+    if min_value is not None:
+        query = query.filter(Property.assessed_value >= min_value)
+    if max_value is not None:
+        query = query.filter(Property.assessed_value <= max_value)
+    
+    if min_lot_size is not None:
+        query = query.filter(Property.lot_size_sqft >= min_lot_size)
+    if max_lot_size is not None:
+        query = query.filter(Property.lot_size_sqft <= max_lot_size)
     
     if include_vacant is not None:
         query = query.filter(Property.is_vacant == (1 if include_vacant else 0))
@@ -121,8 +147,11 @@ async def export_csv(
     
     filename = f"ct_properties_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     
+    # Encode CSV string to bytes for proper blob handling
+    csv_bytes = output.getvalue().encode('utf-8')
+    
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter([csv_bytes]),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
@@ -135,28 +164,54 @@ async def export_json(
     property_type: Optional[str] = None,
     include_vacant: Optional[bool] = None,
     include_absentee: Optional[bool] = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    min_lot_size: Optional[float] = None,
+    max_lot_size: Optional[float] = None,
     limit: int = Query(1000, le=10000),
     db: Session = Depends(get_db)
 ):
     """Export properties to JSON"""
     query = db.query(Property)
     
-    # Apply filters (same as CSV)
+    # Apply filters (same as CSV/Excel)
     if filter_type == "high-equity" and min_equity:
         query = query.filter(
             Property.equity_estimate.isnot(None),
             Property.equity_estimate >= min_equity
         )
+    elif filter_type == "high-equity":
+        query = query.filter(
+            Property.equity_estimate.isnot(None),
+            Property.equity_estimate >= 50000
+        )
     elif filter_type == "vacant":
         query = query.filter(Property.is_vacant == 1)
     elif filter_type == "absentee-owners":
         query = query.filter(Property.is_absentee == 1)
+    elif filter_type == "recently-sold":
+        query = query.filter(Property.last_sale_date.isnot(None))
+    elif filter_type == "low-equity":
+        query = query.filter(
+            Property.equity_estimate.isnot(None),
+            Property.equity_estimate <= 10000
+        )
     
     if municipality:
         query = query.filter(Property.municipality.ilike(f"%{municipality}%"))
     
     if property_type:
-        query = query.filter(Property.property_type == property_type)
+        query = query.filter(Property.property_type.ilike(f"%{property_type}%"))
+    
+    if min_value is not None:
+        query = query.filter(Property.assessed_value >= min_value)
+    if max_value is not None:
+        query = query.filter(Property.assessed_value <= max_value)
+    
+    if min_lot_size is not None:
+        query = query.filter(Property.lot_size_sqft >= min_lot_size)
+    if max_lot_size is not None:
+        query = query.filter(Property.lot_size_sqft <= max_lot_size)
     
     if include_vacant is not None:
         query = query.filter(Property.is_vacant == (1 if include_vacant else 0))
@@ -200,8 +255,12 @@ async def export_json(
     
     filename = f"ct_properties_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     
+    # Convert to JSON string and encode for blob response
+    json_str = json.dumps(results, indent=2, default=str)
+    json_bytes = json_str.encode('utf-8')
+    
     return StreamingResponse(
-        content=json.dumps(results, indent=2, default=str),
+        iter([json_bytes]),
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )

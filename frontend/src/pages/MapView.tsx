@@ -37,11 +37,17 @@ export default function MapView() {
   const labelMarkersRef = useRef<L.Marker[]>([])
   const mapRef = useRef<L.Map | null>(null)
   const lastQueryTimeRef = useRef<number>(0)
+  const fetchingMunicipalityBoundsRef = useRef(false) // Flag to track when municipality bounds are being fetched
   
   // Memoize the bounds change handler
+  // When municipality is set, don't update mapBounds to prevent bbox from interfering with municipality filter
   const handleBoundsChange = useCallback((bounds: { north: number; south: number; east: number; west: number }) => {
-    setMapBounds(bounds)
-  }, [])
+    // Only update mapBounds if municipality is NOT set AND we're not currently fetching municipality bounds
+    // This prevents map movements from affecting queries when municipality filter is active
+    if (!filterParams?.municipality && !fetchingMunicipalityBoundsRef.current) {
+      setMapBounds(bounds)
+    }
+  }, [filterParams?.municipality])
   
   // Handle navigation from search bar
   useEffect(() => {
@@ -247,32 +253,33 @@ export default function MapView() {
   }, [location.state])
 
   // Get bounding box for current viewport - use actual map bounds if available
+  // When municipality is set, don't calculate bbox to prevent it from interfering with municipality filter
   const bbox = useMemo(() => {
+    // If municipality is set, return undefined to prevent bbox from being used
+    if (filterParams?.municipality) {
+      return undefined
+    }
+    
     if (mapBounds) {
       // Use actual map bounds: minLng, minLat, maxLng, maxLat
       const bboxVal = `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:237',message:'bbox calculated from mapBounds',data:{bbox:bboxVal,mapBounds},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       return bboxVal
     }
     // Fallback to approximate bbox based on center and zoom
     const latRange = 180 / Math.pow(2, zoom)
     const lngRange = 360 / Math.pow(2, zoom)
     const bboxVal = `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:242',message:'bbox calculated from fallback',data:{bbox:bboxVal,center,zoom,mapBounds},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     return bboxVal
-  }, [mapBounds, center, zoom])
+  }, [mapBounds, center, zoom, filterParams?.municipality])
 
   // Use the new simplified property query hook
+  // When municipality is set, explicitly pass undefined for bbox to ensure it's never used
   const { data, isLoading, error, status, fetchStatus } = usePropertyQuery({
     filterType,
     filterParams,
     searchQuery,
-    bbox,
-    mapBounds,
+    bbox: filterParams?.municipality ? undefined : bbox, // Explicitly exclude bbox when municipality is set
+    mapBounds: filterParams?.municipality ? null : mapBounds, // Don't pass mapBounds when municipality is set
     center,
     zoom,
   })
@@ -411,12 +418,99 @@ export default function MapView() {
       } else if (filter === 'municipality') {
         // Handle arrays: convert to comma-separated string for backend
         const municipalityValue = Array.isArray(value) ? value.join(',') : value
+        
         setFilterParams((prev: any) => {
           const newParams = { ...prev }
           if (municipalityValue) {
             newParams.municipality = municipalityValue
+            
+            // Immediately clear map bounds to prevent bbox from being used
+            // This ensures queries use ONLY municipality filter, not bbox
+            setMapBounds(null)
+            
+            // Set flag to indicate we're fetching bounds
+            fetchingMunicipalityBoundsRef.current = true
+            
+            // Show property list immediately when municipality is selected
+            setShowPropertyList(true)
+            
+            // Fetch municipality bounds and zoom map to show entire municipality
+            const municipalityName = Array.isArray(value) ? value[0] : municipalityValue
+            propertyApi.getMunicipalityBounds(municipalityName)
+              .then((bounds) => {
+                // Calculate center from bounds
+                const centerLat = bounds.center_lat
+                const centerLng = bounds.center_lng
+                
+                // Calculate appropriate zoom level based on bounds extent
+                const latRange = bounds.max_lat - bounds.min_lat
+                const lngRange = bounds.max_lng - bounds.min_lng
+                const maxRange = Math.max(latRange, lngRange)
+                
+                // Determine zoom level based on extent
+                let zoomLevel = 12
+                if (maxRange > 0.1) zoomLevel = 10      // Very large area
+                else if (maxRange > 0.05) zoomLevel = 11  // Large area
+                else if (maxRange > 0.02) zoomLevel = 12   // Medium area
+                else if (maxRange > 0.01) zoomLevel = 13  // Small area
+                else zoomLevel = 14                        // Very small area
+                
+                // Set map center and zoom
+                setCenter([centerLat, centerLng])
+                setZoom(zoomLevel)
+                
+                // Set map bounds to municipality bounds AFTER a short delay
+                // This prevents the bounds update from triggering a query
+                setTimeout(() => {
+                  setMapBounds({
+                    north: bounds.max_lat,
+                    south: bounds.min_lat,
+                    east: bounds.max_lng,
+                    west: bounds.min_lng
+                  })
+                  fetchingMunicipalityBoundsRef.current = false
+                }, 100)
+                
+                console.log('📍 [Municipality] Fetched bounds and zoomed map:', {
+                  municipality: municipalityName,
+                  bounds,
+                  center: [centerLat, centerLng],
+                  zoom: zoomLevel
+                })
+              })
+              .catch((error) => {
+                console.error('❌ Failed to fetch municipality bounds:', error)
+                fetchingMunicipalityBoundsRef.current = false
+                // Fallback to approximate center if bounds fetch fails
+                const municipalityCenters: Record<string, [number, number]> = {
+                  'Torrington': [41.8006, -73.1212],
+                  'Bridgeport': [41.1865, -73.1952],
+                  'Hartford': [41.7658, -72.6734],
+                  'New Haven': [41.3083, -72.9279],
+                  'Stamford': [41.0534, -73.5387],
+                  'Waterbury': [41.5582, -73.0515],
+                  'Norwalk': [41.1176, -73.4080],
+                  'Danbury': [41.3948, -73.4540],
+                  'New Britain': [41.6612, -72.7795],
+                  'West Hartford': [41.7620, -72.7420],
+                  'Greenwich': [41.0262, -73.6282],
+                  'Hamden': [41.3959, -72.8965],
+                  'Meriden': [41.5382, -72.8070],
+                  'Bristol': [41.6718, -72.9493],
+                  'Middletown': [41.5623, -72.6506],
+                  'Stratford': [41.1845, -73.1332],
+                  'Norwich': [41.5242, -72.0759],
+                  'New London': [41.3557, -72.0995],
+                }
+                const center = municipalityCenters[municipalityName]
+                if (center) {
+                  setCenter(center)
+                  setZoom(12)
+                }
+              })
           } else {
             delete newParams.municipality
+            fetchingMunicipalityBoundsRef.current = false
             // Clear unit type and zoning when municipality is cleared
             delete newParams.unit_type
             delete newParams.zoning

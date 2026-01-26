@@ -108,6 +108,11 @@ apiClient.interceptors.response.use(
   (response) => {
     console.log('✅ API Response:', response.status, response.config.url)
     
+    // Skip normalization for blob responses (export endpoints)
+    if (response.config.responseType === 'blob') {
+      return response
+    }
+    
       // Normalize property data in responses for type safety
       if (response.data && typeof response.data === 'object') {
         // Normalize properties array
@@ -140,6 +145,24 @@ apiClient.interceptors.response.use(
   },
   async (error: AxiosError) => {
     const config = error.config as InternalAxiosRequestConfig & { __retryCount?: number }
+    
+    // Handle blob error responses (might contain error JSON)
+    if (config?.responseType === 'blob' && error.response?.data) {
+      try {
+        const blob = error.response.data as Blob
+        const errorText = await blob.text()
+        console.error('❌ [Export API] Blob error response:', errorText)
+        // Try to parse as JSON
+        try {
+          const errorJson = JSON.parse(errorText)
+          error.message = errorJson.detail || errorJson.message || error.message
+        } catch {
+          error.message = errorText || error.message
+        }
+      } catch (e) {
+        console.error('❌ [Export API] Failed to read error blob:', e)
+      }
+    }
     
     // Initialize retry count if not present
     if (!config.__retryCount) {
@@ -174,7 +197,7 @@ apiClient.interceptors.response.use(
       method: config?.method,
       status: error.response?.status,
       statusText: error.response?.statusText,
-      data: error.response?.data,
+      data: config?.responseType === 'blob' ? '[Blob]' : error.response?.data,
       retries: config.__retryCount,
     })
     
@@ -295,6 +318,20 @@ export const propertyApi = {
     page_size?: number
   }): Promise<SearchResponse> => {
     const response = await apiClient.get('/api/search/', { params })
+    return response.data
+  },
+
+  getMunicipalityBounds: async (municipality: string): Promise<{
+    municipality: string
+    min_lng: number
+    min_lat: number
+    max_lng: number
+    max_lat: number
+    center_lat: number
+    center_lng: number
+    bbox: string
+  }> => {
+    const response = await apiClient.get(`/api/search/municipality/${encodeURIComponent(municipality)}/bounds`)
     return response.data
   },
 
@@ -478,10 +515,31 @@ export const exportApi = {
     min_lot_size?: number
     max_lot_size?: number
   }): Promise<Blob> => {
+    console.log('📤 [Export API] exportCSV called with params:', params)
+    
+    // #region agent log
+    try {
+      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:500',message:'exportCSV API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+    } catch (e) {
+      console.warn('Debug log failed:', e)
+    }
+    // #endregion
+    
     const response = await apiClient.get('/api/export/csv', {
       params,
       responseType: 'blob',
     })
+    
+    console.log('📥 [Export API] exportCSV response:', { status: response.status, blobSize: response.data?.size, blobType: response.data?.type })
+    
+    // #region agent log
+    try {
+      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:506',message:'exportCSV response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+    } catch (e) {
+      console.warn('Debug log failed:', e)
+    }
+    // #endregion
+    
     return response.data
   },
 
@@ -498,10 +556,16 @@ export const exportApi = {
     min_lot_size?: number
     max_lot_size?: number
   }): Promise<Blob> => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:520',message:'exportJSON API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     const response = await apiClient.get('/api/export/json', {
       params,
       responseType: 'blob',
     })
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:526',message:'exportJSON response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     return response.data
   },
 
@@ -517,10 +581,47 @@ export const exportApi = {
     min_lot_size?: number
     max_lot_size?: number
   }): Promise<Blob> => {
+    console.log('📤 [Export API] exportExcel called with params:', params)
+    
+    // #region agent log
+    try {
+      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:539',message:'exportExcel API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+    } catch (e) {
+      console.warn('Debug log failed:', e)
+    }
+    // #endregion
+    
     const response = await apiClient.get('/api/export/excel', {
       params,
       responseType: 'blob',
     })
+    
+    console.log('📥 [Export API] exportExcel response:', { status: response.status, blobSize: response.data?.size, blobType: response.data?.type })
+    
+    // Check if response is an error (blob might contain error JSON)
+    if (response.status >= 400) {
+      // Clone the blob before reading it (reading consumes it)
+      const blobClone = response.data.slice()
+      const errorText = await blobClone.text()
+      console.error('❌ [Export API] exportExcel error response:', errorText)
+      // #region agent log
+      try {
+        await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:550',message:'exportExcel error',data:{status:response.status,errorText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+      } catch (e) {
+        console.warn('Debug log failed:', e)
+      }
+      // #endregion
+      throw new Error(`Export failed: ${response.status} ${response.statusText || 'Error'}`)
+    }
+    
+    // #region agent log
+    try {
+      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:545',message:'exportExcel response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+    } catch (e) {
+      console.warn('Debug log failed:', e)
+    }
+    // #endregion
+    
     return response.data
   },
 

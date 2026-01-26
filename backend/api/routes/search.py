@@ -848,3 +848,83 @@ async def get_unit_type_options(
             status_code=500,
             detail=f"Failed to retrieve unit type options: {str(e)}. Check backend logs for details."
         )
+
+class MunicipalityBoundsResponse(BaseModel):
+    municipality: str
+    min_lng: float
+    min_lat: float
+    max_lng: float
+    max_lat: float
+    center_lat: float
+    center_lng: float
+    bbox: str  # Format: "min_lng,min_lat,max_lng,max_lat"
+
+@router.get("/municipality/{municipality}/bounds", response_model=MunicipalityBoundsResponse)
+async def get_municipality_bounds(
+    municipality: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get the bounding box (extent) of all properties in a municipality.
+    Returns min/max lat/lng calculated from property geometries.
+    """
+    try:
+        # Use ST_Extent to get bounding box of all geometries, then extract min/max coordinates
+        # ST_Extent returns a box2d, we need to extract the coordinates from it
+        extent_result = db.execute(
+            text("""
+                SELECT 
+                    ST_XMin(ST_Extent(geometry)) as min_lng,
+                    ST_YMin(ST_Extent(geometry)) as min_lat,
+                    ST_XMax(ST_Extent(geometry)) as max_lng,
+                    ST_YMax(ST_Extent(geometry)) as max_lat,
+                    ST_Y(ST_Centroid(ST_Collect(geometry))) as center_lat,
+                    ST_X(ST_Centroid(ST_Collect(geometry))) as center_lng
+                FROM properties
+                WHERE (municipality = :municipality OR municipality ILIKE :municipality_like)
+                  AND geometry IS NOT NULL
+            """),
+            {
+                'municipality': municipality,
+                'municipality_like': f"%{municipality}%"
+            }
+        ).fetchone()
+        
+        if not extent_result or extent_result[0] is None:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=404,
+                detail=f"No properties found for municipality: {municipality}"
+            )
+        
+        min_lng = float(extent_result[0])
+        min_lat = float(extent_result[1])
+        max_lng = float(extent_result[2])
+        max_lat = float(extent_result[3])
+        center_lat = float(extent_result[4]) if extent_result[4] is not None else (min_lat + max_lat) / 2
+        center_lng = float(extent_result[5]) if extent_result[5] is not None else (min_lng + max_lng) / 2
+        
+        bbox_str = f"{min_lng},{min_lat},{max_lng},{max_lat}"
+        
+        return MunicipalityBoundsResponse(
+            municipality=municipality,
+            min_lng=min_lng,
+            min_lat=min_lat,
+            max_lng=max_lng,
+            max_lat=max_lat,
+            center_lat=center_lat,
+            center_lng=center_lng,
+            bbox=bbox_str
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_msg = f"Error in get_municipality_bounds: {str(e)}"
+        print(error_msg)
+        traceback.print_exc()
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve municipality bounds: {str(e)}. Check backend logs for details."
+        )
