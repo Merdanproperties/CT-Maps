@@ -11,6 +11,20 @@ export interface PropertyQueryParams {
     property_type?: string
     min_lot_size?: number
     max_lot_size?: number
+    unit_type?: string
+    zoning?: string
+    year_built_min?: number
+    year_built_max?: number
+    has_phone?: boolean
+    has_email?: boolean
+    has_contact?: string
+    sales_history?: string
+    days_since_sale_min?: number
+    days_since_sale_max?: number
+    time_since_sale?: string
+    tax_amount_min?: number
+    tax_amount_max?: number
+    annual_tax?: string
   }
   searchQuery?: string
   bbox?: string
@@ -40,6 +54,23 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
     if (filterParams.property_type) searchParams.property_type = filterParams.property_type
     if (filterParams.min_lot_size) searchParams.min_lot_size = filterParams.min_lot_size
     if (filterParams.max_lot_size) searchParams.max_lot_size = filterParams.max_lot_size
+    if (filterParams.unit_type) searchParams.unit_type = filterParams.unit_type
+    if (filterParams.zoning) searchParams.zoning = filterParams.zoning
+    if (filterParams.year_built_min) searchParams.year_built_min = filterParams.year_built_min
+    if (filterParams.year_built_max) searchParams.year_built_max = filterParams.year_built_max
+    if (filterParams.has_phone !== undefined) searchParams.has_phone = filterParams.has_phone
+    if (filterParams.has_email !== undefined) searchParams.has_email = filterParams.has_email
+    if (filterParams.has_contact) searchParams.has_contact = filterParams.has_contact
+    if (filterParams.sales_history) searchParams.sales_history = filterParams.sales_history
+    if (filterParams.days_since_sale_min) searchParams.days_since_sale_min = filterParams.days_since_sale_min
+    if (filterParams.days_since_sale_max) searchParams.days_since_sale_max = filterParams.days_since_sale_max
+    if (filterParams.time_since_sale) searchParams.time_since_sale = filterParams.time_since_sale
+    if (filterParams.tax_amount_min) searchParams.tax_amount_min = filterParams.tax_amount_min
+    if (filterParams.tax_amount_max) searchParams.tax_amount_max = filterParams.tax_amount_max
+    if (filterParams.annual_tax) searchParams.annual_tax = filterParams.annual_tax
+    if (filterParams.owner_address) searchParams.owner_address = filterParams.owner_address
+    if (filterParams.owner_city) searchParams.owner_city = filterParams.owner_city
+    if (filterParams.owner_state) searchParams.owner_state = filterParams.owner_state
     return searchParams
   }
 
@@ -98,7 +129,24 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
     filterParams.max_value !== undefined || 
     filterParams.min_lot_size !== undefined || 
     filterParams.max_lot_size !== undefined ||
-    filterParams.property_type !== undefined
+    filterParams.property_type !== undefined ||
+    filterParams.unit_type !== undefined ||
+    filterParams.zoning !== undefined ||
+    filterParams.year_built_min !== undefined ||
+    filterParams.year_built_max !== undefined ||
+    filterParams.has_phone !== undefined ||
+    filterParams.has_email !== undefined ||
+    filterParams.has_contact !== undefined ||
+    filterParams.sales_history !== undefined ||
+    filterParams.days_since_sale_min !== undefined ||
+    filterParams.days_since_sale_max !== undefined ||
+    filterParams.time_since_sale !== undefined ||
+    filterParams.tax_amount_min !== undefined ||
+    filterParams.tax_amount_max !== undefined ||
+    filterParams.annual_tax !== undefined ||
+    filterParams.owner_address !== undefined ||
+    filterParams.owner_city !== undefined ||
+    filterParams.owner_state !== undefined
 
   if (hasCustomFilters && bbox) {
     const searchParams = buildSearchParams({ bbox })
@@ -140,7 +188,21 @@ export function usePropertyQuery(params: PropertyQueryParams) {
       filterParams.max_value !== undefined ||
       filterParams.min_lot_size !== undefined ||
       filterParams.max_lot_size !== undefined ||
-      filterParams.property_type !== undefined
+      filterParams.property_type !== undefined ||
+      filterParams.unit_type !== undefined ||
+      filterParams.zoning !== undefined ||
+      filterParams.year_built_min !== undefined ||
+      filterParams.year_built_max !== undefined ||
+      filterParams.has_phone !== undefined ||
+      filterParams.has_email !== undefined ||
+      filterParams.has_contact !== undefined ||
+      filterParams.sales_history !== undefined ||
+      filterParams.days_since_sale_min !== undefined ||
+      filterParams.days_since_sale_max !== undefined ||
+      filterParams.time_since_sale !== undefined ||
+      filterParams.tax_amount_min !== undefined ||
+      filterParams.tax_amount_max !== undefined ||
+      filterParams.annual_tax !== undefined
     ))
 
   const hasBbox = !!bbox || !!mapBounds || (!!center && !!zoom)

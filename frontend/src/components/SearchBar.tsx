@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Search, MapPin, Building2, X } from 'lucide-react'
+import { Search, MapPin, Building2, X, User } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import './SearchBar.css'
 
 interface AutocompleteSuggestion {
-  type: 'address' | 'town' | 'state'
+  type: 'address' | 'town' | 'state' | 'owner' | 'owner_address'
   value: string
   display: string
   count?: number
@@ -112,6 +112,20 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
         // #region agent log
         fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:106',message:'Address suggestion selected',data:{address:suggestion.value,suggestionType:suggestion.type,centerLat:suggestion.center_lat,centerLng:suggestion.center_lng,navCenter:navState.center,count:suggestion.count},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
+      } else if (suggestion.type === 'owner') {
+        // Owner name search - set query to owner name, center on average location
+        navState.center = suggestion.center_lat && suggestion.center_lng 
+          ? [suggestion.center_lat, suggestion.center_lng] 
+          : null
+        navState.zoom = 10
+        navState.searchQuery = suggestion.value  // Owner name
+      } else if (suggestion.type === 'owner_address') {
+        // Owner address search - set query to owner address, center on average location
+        navState.center = suggestion.center_lat && suggestion.center_lng 
+          ? [suggestion.center_lat, suggestion.center_lng] 
+          : null
+        navState.zoom = 10
+        navState.searchQuery = suggestion.value  // Owner mailing address
       }
       
       console.log('🧭 Navigating with state:', navState)
@@ -244,11 +258,14 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
                 className={`search-bar-suggestion ${
                   index === selectedIndex ? 'selected' : ''
                 }`}
+                data-type={suggestion.type}
                 onClick={() => handleSelect(suggestion)}
               >
                 <div className="search-bar-suggestion-icon">
                   {suggestion.type === 'town' ? (
                     <Building2 size={16} />
+                  ) : suggestion.type === 'owner' || suggestion.type === 'owner_address' ? (
+                    <User size={16} />
                   ) : (
                     <MapPin size={16} />
                   )}

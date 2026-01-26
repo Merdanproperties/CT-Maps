@@ -33,6 +33,7 @@ export interface PropertyCore extends PropertyBase {
   building_value: number | null
   property_type: string | null
   land_use: string | null
+  zoning: string | null
   lot_size_sqft: number | null
   year_built: number | null
   last_sale_date: string | null
@@ -180,6 +181,7 @@ export class PropertyNormalizer {
       // Property details
       property_type: property.property_type || null,
       land_use: property.land_use || null,
+      zoning: property.zoning || null,
       lot_size_sqft: property.lot_size_sqft != null ? Number(property.lot_size_sqft) : null,
       year_built: property.year_built != null ? Number(property.year_built) : null,
       building_area_sqft: property.building_area_sqft != null ? Number(property.building_area_sqft) : null,

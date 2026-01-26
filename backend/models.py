@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Text, Index
+from sqlalchemy import Column, Integer, String, Float, Date, Text, Index, DateTime, ForeignKey
+from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
 from geoalchemy2 import Geometry
 from database import Base
@@ -33,6 +34,7 @@ class Property(Base):
     # Property characteristics
     property_type = Column(String)
     land_use = Column(String)
+    zoning = Column(String)  # Zoning code
     lot_size_sqft = Column(Float)
     building_area_sqft = Column(Float)
     year_built = Column(Integer)
@@ -87,6 +89,7 @@ class Property(Base):
         Index('idx_property_municipality', 'municipality'),
         Index('idx_property_assessed_value', 'assessed_value'),
         Index('idx_property_last_sale_date', 'last_sale_date'),
+        Index('idx_property_zoning', 'zoning'),
     )
 
 class Sale(Base):
@@ -106,4 +109,18 @@ class Sale(Base):
     
     __table_args__ = (
         Index('idx_sale_parcel_date', 'parcel_id', 'sale_date'),
+    )
+
+class PropertyComment(Base):
+    __tablename__ = "property_comments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    property_id = Column(Integer, ForeignKey('properties.id'), nullable=False, index=True)
+    comment = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_comment_property_id', 'property_id'),
+        Index('idx_comment_created_at', 'created_at'),
     )

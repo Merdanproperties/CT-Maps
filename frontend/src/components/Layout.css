@@ -5,6 +5,12 @@
   width: 100%;
 }
 
+/* CSS Variables for header heights */
+:root {
+  --filter-bar-height: 60px; /* TopFilterBar approximate height */
+  --total-header-height: var(--filter-bar-height);
+}
+
 .header {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;

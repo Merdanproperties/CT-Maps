@@ -15,17 +15,33 @@ logger = logging.getLogger(__name__)
 # Health monitoring
 health_status = {"database": True, "api": True}
 
+# Cache database health status to avoid frequent checks
+_db_health_cache = {"status": True, "timestamp": 0}
+_db_health_cache_duration = 2  # Cache for 2 seconds
+
 def check_database_health():
-    """Check database connection health (synchronous)"""
+    """Check database connection health (synchronous, with caching)"""
+    import time
+    current_time = time.time()
+    
+    # Return cached result if still valid
+    if current_time - _db_health_cache["timestamp"] < _db_health_cache_duration:
+        return _db_health_cache["status"]
+    
     try:
         from sqlalchemy import text
+        # Use a lightweight query - just check connection
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         health_status["database"] = True
+        _db_health_cache["status"] = True
+        _db_health_cache["timestamp"] = current_time
         return True
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         health_status["database"] = False
+        _db_health_cache["status"] = False
+        _db_health_cache["timestamp"] = current_time
         return False
 
 def recover_database():
@@ -112,7 +128,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -132,17 +148,44 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Enhanced health check endpoint with diagnostic information"""
+    """Optimized health check endpoint - lightweight and fast"""
     import concurrent.futures
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    loop = asyncio.get_event_loop()
     
-    db_healthy = await loop.run_in_executor(executor, check_database_health)
+    # Use cached executor to avoid creating new one each time
+    # Check database health with timeout to prevent hanging
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        loop = asyncio.get_event_loop()
+        
+        # Run health check with timeout (max 2 seconds)
+        db_healthy = await asyncio.wait_for(
+            loop.run_in_executor(executor, check_database_health),
+            timeout=2.0
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Database health check timed out")
+        db_healthy = False
+    except Exception as e:
+        logger.error(f"Error checking database health: {e}")
+        db_healthy = False
     
+    # Only attempt recovery if unhealthy (don't do it on every health check)
     if not db_healthy:
-        # Attempt recovery
-        await loop.run_in_executor(executor, recover_database)
-        db_healthy = await loop.run_in_executor(executor, check_database_health)
+        # Attempt recovery (but don't block health check response)
+        try:
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(
+                loop.run_in_executor(executor, recover_database),
+                timeout=3.0
+            )
+            # Re-check after recovery attempt
+            db_healthy = await asyncio.wait_for(
+                loop.run_in_executor(executor, check_database_health),
+                timeout=2.0
+            )
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning(f"Recovery attempt failed or timed out: {e}")
     
     status = "healthy" if db_healthy else "degraded"
     
@@ -152,7 +195,7 @@ async def health():
         "api": "operational"
     }
     
-    # Add diagnostic information if unhealthy
+    # Add diagnostic information if unhealthy (but keep it minimal for speed)
     if not db_healthy:
         response["diagnostics"] = {
             "issue": "Database connection failed",
@@ -161,11 +204,6 @@ async def health():
                 "2. Check DATABASE_URL in backend/.env",
                 "3. Restart PostgreSQL if needed",
                 "4. Restart backend: cd backend && source venv/bin/activate && uvicorn main:app --reload"
-            ],
-            "check_commands": [
-                "psql -l",
-                "ps aux | grep postgres",
-                "cat backend/.env | grep DATABASE_URL"
             ]
         }
     

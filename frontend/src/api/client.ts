@@ -4,12 +4,36 @@ import { healthCheckService } from '../services/healthCheck'
 // Use relative URLs to go through Vite proxy, or use env variable if set
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
+// Note: HTTP keep-alive agents are not available in browser environment
+// The browser handles connection pooling automatically
+// If running in Node.js environment, uncomment the following:
+/*
+import http from 'http'
+import https from 'https'
+
+const httpAgent = new http.Agent({ 
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  maxSockets: 50,
+  maxFreeSockets: 10
+})
+
+const httpsAgent = new https.Agent({ 
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  maxSockets: 50,
+  maxFreeSockets: 10
+})
+*/
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
+    'Connection': 'keep-alive', // Hint to browser to keep connection alive
   },
   timeout: 30000, // 30 second timeout
+  // httpAgent and httpsAgent would be added here if in Node.js environment
 })
 
 // Retry configuration
@@ -225,6 +249,14 @@ export interface FilterResponse {
   page_size?: number
 }
 
+export interface Comment {
+  id: number
+  property_id: number
+  comment: string
+  created_at: string
+  updated_at: string
+}
+
 export const propertyApi = {
   getProperty: async (id: number): Promise<PropertyDetail> => {
     const response = await apiClient.get(`/api/properties/${id}`)
@@ -245,6 +277,20 @@ export const propertyApi = {
     min_lot_size?: number
     max_lot_size?: number
     bbox?: string
+    unit_type?: string
+    zoning?: string
+    year_built_min?: number
+    year_built_max?: number
+    has_phone?: boolean
+    has_email?: boolean
+    has_contact?: string
+    sales_history?: string
+    days_since_sale_min?: number
+    days_since_sale_max?: number
+    time_since_sale?: string
+    tax_amount_min?: number
+    tax_amount_max?: number
+    annual_tax?: string
     page?: number
     page_size?: number
   }): Promise<SearchResponse> => {
@@ -297,6 +343,124 @@ export const propertyApi = {
     page_size?: number
   }): Promise<FilterResponse> => {
     const response = await apiClient.get('/api/filters/low-equity', { params })
+    return response.data
+  },
+
+  updateProperty: async (id: number, updates: Partial<PropertyDetail>): Promise<PropertyDetail> => {
+    const response = await apiClient.patch(`/api/properties/${id}`, updates)
+    return response.data
+  },
+
+  getZoningOptions: async (filters?: {
+    municipality?: string
+    unitType?: string
+    propertyAge?: string
+    timeSinceSale?: string
+    annualTax?: string
+    ownerCity?: string
+    ownerState?: string
+  }): Promise<{zoning_codes: string[]}> => {
+    const params: any = {}
+    if (filters?.municipality) params.municipality = filters.municipality
+    if (filters?.unitType) params.unit_type = filters.unitType
+    if (filters?.propertyAge) params.property_age = filters.propertyAge
+    if (filters?.timeSinceSale) params.time_since_sale = filters.timeSinceSale
+    if (filters?.annualTax) params.annual_tax = filters.annualTax
+    if (filters?.ownerCity) params.owner_city = filters.ownerCity
+    if (filters?.ownerState) params.owner_state = filters.ownerState
+    const response = await apiClient.get('/api/search/zoning/options', { params })
+    return response.data
+  },
+
+  getUnitTypeOptions: async (filters?: {
+    municipality?: string
+    zoning?: string
+    propertyAge?: string
+    timeSinceSale?: string
+    annualTax?: string
+    ownerCity?: string
+    ownerState?: string
+  }): Promise<{unit_types: Array<{property_type: string, land_use: string | null}>}> => {
+    const params: any = {}
+    if (filters?.municipality) params.municipality = filters.municipality
+    if (filters?.zoning) params.zoning = filters.zoning
+    if (filters?.propertyAge) params.property_age = filters.propertyAge
+    if (filters?.timeSinceSale) params.time_since_sale = filters.timeSinceSale
+    if (filters?.annualTax) params.annual_tax = filters.annualTax
+    if (filters?.ownerCity) params.owner_city = filters.ownerCity
+    if (filters?.ownerState) params.owner_state = filters.ownerState
+    const response = await apiClient.get('/api/search/unit-types/options', { params })
+    return response.data
+  },
+
+  getTowns: async (): Promise<string[]> => {
+    const response = await apiClient.get('/api/autocomplete/towns')
+    return response.data
+  },
+
+  getOwnerCities: async (filters?: {
+    municipality?: string
+    unitType?: string
+    zoning?: string
+    propertyAge?: string
+    timeSinceSale?: string
+    annualTax?: string
+    ownerState?: string
+  }): Promise<string[]> => {
+    const params: any = {}
+    if (filters?.municipality) params.municipality = filters.municipality
+    if (filters?.unitType) params.unit_type = filters.unitType
+    if (filters?.zoning) params.zoning = filters.zoning
+    if (filters?.propertyAge) params.property_age = filters.propertyAge
+    if (filters?.timeSinceSale) params.time_since_sale = filters.timeSinceSale
+    if (filters?.annualTax) params.annual_tax = filters.annualTax
+    if (filters?.ownerState) params.owner_state = filters.ownerState
+    const response = await apiClient.get('/api/autocomplete/owner-cities', { params })
+    return response.data
+  },
+
+  getOwnerStates: async (filters?: {
+    municipality?: string
+    unitType?: string
+    zoning?: string
+    propertyAge?: string
+    timeSinceSale?: string
+    annualTax?: string
+    ownerCity?: string
+  }): Promise<string[]> => {
+    const params: any = {}
+    if (filters?.municipality) params.municipality = filters.municipality
+    if (filters?.unitType) params.unit_type = filters.unitType
+    if (filters?.zoning) params.zoning = filters.zoning
+    if (filters?.propertyAge) params.property_age = filters.propertyAge
+    if (filters?.timeSinceSale) params.time_since_sale = filters.timeSinceSale
+    if (filters?.annualTax) params.annual_tax = filters.annualTax
+    if (filters?.ownerCity) params.owner_city = filters.ownerCity
+    const response = await apiClient.get('/api/autocomplete/owner-states', { params })
+    return response.data
+  },
+
+  getOwnerAddressSuggestions: async (query: string, filters?: {
+    municipality?: string
+    unitType?: string
+    zoning?: string
+    propertyAge?: string
+    timeSinceSale?: string
+    annualTax?: string
+    ownerCity?: string
+    ownerState?: string
+  }): Promise<string[]> => {
+    if (!query || query.length < 1) return []
+    const params: any = { q: query, limit: 10 }
+    if (filters?.municipality) params.municipality = filters.municipality
+    if (filters?.unitType) params.unit_type = filters.unitType
+    if (filters?.zoning) params.zoning = filters.zoning
+    if (filters?.propertyAge) params.property_age = filters.propertyAge
+    if (filters?.timeSinceSale) params.time_since_sale = filters.timeSinceSale
+    if (filters?.annualTax) params.annual_tax = filters.annualTax
+    if (filters?.ownerCity) params.owner_city = filters.ownerCity
+    if (filters?.ownerState) params.owner_state = filters.ownerState
+    const response = await apiClient.get('/api/autocomplete/owner-addresses', { params })
     return response.data
   },
 }
@@ -359,6 +523,21 @@ export const exportApi = {
     })
     return response.data
   },
+
+  getPropertyComments: async (propertyId: number): Promise<Comment[]> => {
+    const response = await apiClient.get(`/api/properties/${propertyId}/comments`)
+    return response.data
+  },
+
+  createPropertyComment: async (propertyId: number, comment: string): Promise<Comment> => {
+    const response = await apiClient.post(`/api/properties/${propertyId}/comments`, { comment })
+    return response.data
+  },
+
+  updatePropertyComment: async (propertyId: number, commentId: number, comment: string): Promise<Comment> => {
+    const response = await apiClient.put(`/api/properties/${propertyId}/comments/${commentId}`, { comment })
+    return response.data
+  },
 }
 
 export const analyticsApi = {
@@ -371,6 +550,19 @@ export const analyticsApi = {
     await apiClient.post('/api/analytics/track-search', event)
   },
 
+  trackMapLoad: async (event: {
+    map_type?: string
+    viewport?: {
+      center?: [number, number]
+      zoom?: number
+      bounds?: { north: number; south: number; east: number; west: number }
+    }
+  }): Promise<void> => {
+    await apiClient.post('/api/analytics/track-map-load', event).catch(() => {
+      // Silently fail if analytics tracking fails
+    })
+  },
+
   getStats: async (days: number = 7) => {
     const response = await apiClient.get('/api/analytics/stats', {
       params: { days },
@@ -380,6 +572,13 @@ export const analyticsApi = {
 
   getPopularSearches: async (days: number = 7) => {
     const response = await apiClient.get('/api/analytics/popular-searches', {
+      params: { days },
+    })
+    return response.data
+  },
+
+  getMapUsage: async (days: number = 30) => {
+    const response = await apiClient.get('/api/analytics/map-usage', {
       params: { days },
     })
     return response.data

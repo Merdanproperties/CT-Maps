@@ -421,6 +421,9 @@ def map_to_database_fields(combined_record: Dict) -> Dict:
     if 'Style Description' in combined_record:
         db_record['property_type'] = str(combined_record['Style Description']).strip() if pd.notna(combined_record['Style Description']) else None
     
+    if 'Zone' in combined_record:
+        db_record['zoning'] = str(combined_record['Zone']).strip() if pd.notna(combined_record['Zone']) else None
+    
     if 'Email' in combined_record:
         db_record['owner_email'] = str(combined_record['Email']).strip() if pd.notna(combined_record['Email']) else None
     

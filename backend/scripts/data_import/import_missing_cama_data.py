@@ -255,6 +255,9 @@ def map_to_database_fields(combined_record: Dict) -> Dict:
     if 'Mailing State' in combined_record:
         db_record['owner_state'] = str(combined_record['Mailing State']).strip() if pd.notna(combined_record['Mailing State']) else None
     
+    if 'Zone' in combined_record:
+        db_record['zoning'] = str(combined_record['Zone']).strip() if pd.notna(combined_record['Zone']) else None
+    
     # From raw CSV (prefixed with 'raw_' or direct from row_data)
     row_data = combined_record.get('row_data', {})
     

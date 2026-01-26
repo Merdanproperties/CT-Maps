@@ -16,27 +16,74 @@ class HealthCheckService {
   }
   private checkInterval: number | null = null
   private listeners: Array<(status: HealthStatus) => void> = []
-  private readonly CHECK_INTERVAL = 5000 // Check every 5 seconds
-  private readonly HEALTH_CHECK_TIMEOUT = 3000 // 3 second timeout
+  private healthCache: { status: HealthStatus; timestamp: number } | null = null
+  private readonly CHECK_INTERVAL = 10000 // Check every 10 seconds (reduced frequency)
+  private readonly HEALTH_CHECK_TIMEOUT = 8000 // 8 second timeout (increased from 3)
+  private readonly CACHE_DURATION = 3000 // Cache successful checks for 3 seconds
 
   /**
    * Check if backend is healthy
    */
-  async checkHealth(): Promise<HealthStatus> {
+  async checkHealth(useCache: boolean = true): Promise<HealthStatus> {
+    // Check cache first if enabled
+    if (useCache && this.healthCache) {
+      const cacheAge = Date.now() - this.healthCache.timestamp
+      if (cacheAge < this.CACHE_DURATION && this.healthCache.status.isHealthy) {
+        // Return cached healthy status
+        return { ...this.healthCache.status }
+      }
+    }
+
     try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), this.HEALTH_CHECK_TIMEOUT)
-
-      // Use proxied health endpoint
-      const response = await fetch('/health', {
-        method: 'GET',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-
-      clearTimeout(timeoutId)
+      // Progressive timeout strategy: try with shorter timeout first, then longer
+      let response: Response | null = null
+      let lastError: any = null
+      
+      // First attempt with shorter timeout (4 seconds)
+      const shortTimeout = 4000
+      try {
+        const controller1 = new AbortController()
+        const timeoutId1 = setTimeout(() => controller1.abort(), shortTimeout)
+        
+        response = await fetch('/health', {
+          method: 'GET',
+          signal: controller1.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'Connection': 'keep-alive',
+          },
+        })
+        
+        clearTimeout(timeoutId1)
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          // Short timeout failed, try with full timeout
+          lastError = error
+          const controller2 = new AbortController()
+          const timeoutId2 = setTimeout(() => controller2.abort(), this.HEALTH_CHECK_TIMEOUT)
+          
+          try {
+            response = await fetch('/health', {
+              method: 'GET',
+              signal: controller2.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                'Connection': 'keep-alive',
+              },
+            })
+            clearTimeout(timeoutId2)
+          } catch (error2: any) {
+            clearTimeout(timeoutId2)
+            throw error2
+          }
+        } else {
+          throw error
+        }
+      }
+      
+      if (!response) {
+        throw lastError || new Error('No response received')
+      }
 
       const isHealthy = response.ok
       let healthData: any = {}
@@ -62,12 +109,18 @@ class HealthCheckService {
         api: healthData.api || 'unknown',
       }
       
-      // Trigger recovery if unhealthy
-      if (!isFullyHealthy) {
-        // Service manager will attempt recovery, which may trigger auto-remediation
-        serviceManager.attemptRecovery(this.healthStatus).catch(() => {})
-      } else {
+      // Cache successful health checks
+      if (isFullyHealthy) {
+        this.healthCache = {
+          status: { ...this.healthStatus },
+          timestamp: Date.now()
+        }
         serviceManager.resetFailureCount()
+      } else {
+        // Clear cache on failure
+        this.healthCache = null
+        // Trigger recovery if unhealthy
+        serviceManager.attemptRecovery(this.healthStatus).catch(() => {})
       }
     } catch (error: any) {
       this.healthStatus = {

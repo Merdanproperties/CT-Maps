@@ -53,7 +53,8 @@ class PropertyImageService {
 
   /**
    * Get Google Street View image
-   * Note: For production, you'd want to use the Google Street View Static API
+   * Uses Google Street View Static API (free tier: $200/month = ~28,000 images)
+   * Requires VITE_GOOGLE_STREET_VIEW_API_KEY environment variable
    */
   private getGoogleStreetViewImage(
     address: string,
@@ -61,21 +62,28 @@ class PropertyImageService {
     state: string
   ): PropertyImage | null {
     try {
+      // Check if API key is configured
+      const apiKey = import.meta.env.VITE_GOOGLE_STREET_VIEW_API_KEY
+      if (!apiKey) {
+        // API key not configured - return null to fall back to placeholder
+        return null
+      }
+
       // Construct address string
       const fullAddress = `${address}, ${city}, ${state}`
-      
-      // Google Street View Static API URL
-      // Note: This requires an API key in production
-      // For now, we'll use a placeholder that shows the concept
       const encodedAddress = encodeURIComponent(fullAddress)
       
-      // Using a placeholder service that provides street view-like images
-      // In production, replace with actual Google Street View API
-      const streetViewUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/pin-s+ff0000(${encodedAddress})/auto/800x600?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw`
+      // Google Street View Static API URL
+      // Documentation: https://developers.google.com/maps/documentation/streetview/get-api-key
+      // Free tier: $200/month credit = ~28,000 images free
+      const streetViewUrl = `https://maps.googleapis.com/maps/api/streetview?size=800x600&location=${encodedAddress}&key=${apiKey}`
       
-      // For now, return null - will fall back to placeholder
-      // In production, integrate with actual Google Street View API
-      return null
+      return {
+        url: streetViewUrl,
+        source: 'google_street_view',
+        thumbnail: `https://maps.googleapis.com/maps/api/streetview?size=400x300&location=${encodedAddress}&key=${apiKey}`,
+        description: `Street view of ${fullAddress}`,
+      }
     } catch (error) {
       console.warn('Failed to generate street view image:', error)
       return null

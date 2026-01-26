@@ -54,6 +54,25 @@ function MapInitializer({
     })
     setIsMapReady(true)
     
+    // Track map load for analytics
+    const center = map.getCenter()
+    // Determine map provider - check if Mapbox token is configured
+    const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+    const mapType = mapboxToken ? 'mapbox' : 'leaflet'
+    analyticsApi.trackMapLoad({
+      map_type: mapType,
+      viewport: {
+        center: [center.lat, center.lng],
+        zoom: map.getZoom(),
+        bounds: {
+          north: initialBounds.getNorth(),
+          south: initialBounds.getSouth(),
+          east: initialBounds.getEast(),
+          west: initialBounds.getWest(),
+        }
+      }
+    })
+    
     // Only listen to user-initiated moves, not programmatic ones
     let isUserMove = true
     
@@ -167,12 +186,28 @@ export default function MapView() {
   // Handle navigation from search bar
   useEffect(() => {
     if (location.state) {
-      const { center: newCenter, zoom: newZoom, address, municipality } = location.state
+      const { center: newCenter, zoom: newZoom, address, municipality, searchQuery } = location.state
       
-      console.log('📍 Navigation state received:', { address, municipality, newCenter, newZoom })
+      console.log('📍 Navigation state received:', { address, municipality, searchQuery, newCenter, newZoom })
       
+      // If searchQuery provided (owner name or owner address), set it and show property list
+      if (searchQuery) {
+        console.log('🔍 Setting searchQuery from location.state:', searchQuery)
+        if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
+          setCenter([newCenter[0], newCenter[1]])
+          setZoom(newZoom || 10)
+        }
+        setSearchQuery(searchQuery)
+        setFilterParams({}) // Clear municipality filter for owner searches
+        setShowPropertyList(true)
+        setFilterType(null)
+        setSelectedProperty(null)
+        
+        // Clear location state after processing
+        window.history.replaceState({}, document.title)
+      }
       // If municipality provided, filter by it and show property list
-      if (municipality) {
+      else if (municipality) {
         console.log('📍 Setting municipality from location.state:', municipality)
       if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
         setCenter([newCenter[0], newCenter[1]])
@@ -530,20 +565,6 @@ export default function MapView() {
           delete newParams.days
           return newParams
         })
-      } else if (filter === 'price') {
-        setFilterParams((prev: any) => {
-          const newParams = { ...prev }
-          delete newParams.min_value
-          delete newParams.max_value
-          return newParams
-        })
-      } else if (filter === 'lotSize') {
-        setFilterParams((prev: any) => {
-          const newParams = { ...prev }
-          delete newParams.min_lot_size
-          delete newParams.max_lot_size
-          return newParams
-        })
       } else if (filter === 'saleDate') {
         setFilterType(null)
         setFilterParams((prev: any) => {
@@ -555,6 +576,59 @@ export default function MapView() {
         setFilterParams((prev: any) => {
           const newParams = { ...prev }
           delete newParams.property_type
+          return newParams
+        })
+      } else if (filter === 'municipality') {
+        // Handle arrays: convert to comma-separated string for backend
+        const municipalityValue = Array.isArray(value) ? value.join(',') : value
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          if (municipalityValue) {
+            newParams.municipality = municipalityValue
+          } else {
+            delete newParams.municipality
+            // Clear unit type and zoning when municipality is cleared
+            delete newParams.unit_type
+            delete newParams.zoning
+          }
+          return newParams
+        })
+        setFilterType(null)
+      } else if (filter === 'unitType') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.unit_type
+          delete newParams.property_type
+          delete newParams.land_use
+          return newParams
+        })
+      } else if (filter === 'zoning') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.zoning
+          return newParams
+        })
+      } else if (filter === 'propertyAge') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.year_built_min
+          delete newParams.year_built_max
+          return newParams
+        })
+      } else if (filter === 'timeSinceSale') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.time_since_sale
+          delete newParams.days_since_sale_min
+          delete newParams.days_since_sale_max
+          return newParams
+        })
+      } else if (filter === 'annualTax') {
+        setFilterParams((prev: any) => {
+          const newParams = { ...prev }
+          delete newParams.annual_tax
+          delete newParams.tax_amount_min
+          delete newParams.tax_amount_max
           return newParams
         })
       }
@@ -639,24 +713,158 @@ export default function MapView() {
           return { ...newParams, days: saleDateParams.days }
         })
       }
-    } else if (filter === 'propertyTypes') {
-      // Map property type selections to property_type filter
-      const propertyTypeMap: Record<string, string> = {
-        'Residential': 'Residential',
-        'Commercial': 'Commercial',
-        'Industrial': 'Industrial',
-        'Vacant Land': 'Vacant Land',
-        'Mixed Use': 'Mixed Use'
-      }
-      const propertyType = propertyTypeMap[value]
-      if (propertyType) {
+    } else if (filter === 'municipality') {
+      // Set municipality filter and clear unit type and zoning
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        delete newParams.unit_type
+        delete newParams.zoning
+        return { ...newParams, municipality: value }
+      })
+      setFilterType(null) // Clear lead type filter when using municipality
+    } else if (filter === 'unitType') {
+      // Unit type is already formatted as "property_type - land_use" or just "property_type"
+      // Handle arrays: convert to comma-separated string for backend
+      const unitTypeValue = Array.isArray(value) ? value.join(',') : value
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        delete newParams.property_type
+        delete newParams.land_use
+        return { ...newParams, unit_type: unitTypeValue }
+      })
+      setFilterType(null) // Clear lead type filter when using unit type
+    } else if (filter === 'zoning') {
+      // Handle arrays: convert to comma-separated string for backend
+      const zoningValue = Array.isArray(value) ? value.join(',') : value
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        return { ...newParams, zoning: zoningValue }
+      })
+      setFilterType(null) // Clear lead type filter when using zoning
+    } else if (filter === 'ownerAddress') {
+      // Owner mailing address - single text input
+      // When typing, use searchQuery for immediate results (like main search bar)
+      if (value && value !== 'Clear' && value !== null && value !== undefined) {
+        const trimmedValue = value.trim()
+        if (trimmedValue.length > 0) {
+          // Use searchQuery for real-time results, but preserve other filters
+          setSearchQuery(trimmedValue)
+          setShowPropertyList(true)
+          // Keep other filters active, but clear municipality to avoid conflicts
+          setFilterParams((prev: any) => {
+            const newParams = { ...prev }
+            delete newParams.municipality
+            // Also set owner_address in filterParams for when searchQuery is cleared
+            newParams.owner_address = trimmedValue
+            return newParams
+          })
+          setFilterType(null)
+        } else {
+          // Empty string - clear search
+          setSearchQuery('')
+          setFilterParams((prev: any) => {
+            const newParams = { ...prev }
+            delete newParams.owner_address
+            return newParams
+          })
+        }
+      } else {
+        // Clear search query and owner_address filter
+        setSearchQuery('')
         setFilterParams((prev: any) => {
           const newParams = { ...prev }
-          delete newParams.property_type
-          return { ...newParams, property_type: propertyType }
+          delete newParams.owner_address
+          return newParams
         })
-        setFilterType(null) // Clear lead type filter when using property type
       }
+    } else if (filter === 'ownerCity') {
+      // Handle arrays: convert to comma-separated string for backend
+      const ownerCityValue = Array.isArray(value) ? value.join(',') : value
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        if (ownerCityValue && ownerCityValue !== 'Clear') {
+          newParams.owner_city = ownerCityValue
+        } else {
+          delete newParams.owner_city
+        }
+        return newParams
+      })
+      setFilterType(null)
+    } else if (filter === 'ownerState') {
+      // Handle arrays: convert to comma-separated string for backend
+      const ownerStateValue = Array.isArray(value) ? value.join(',') : value
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        if (ownerStateValue && ownerStateValue !== 'Clear') {
+          newParams.owner_state = ownerStateValue
+        } else {
+          delete newParams.owner_state
+        }
+        return newParams
+      })
+      setFilterType(null)
+    } else if (filter === 'propertyAge') {
+      // Map property age selections to year_built ranges (updated to start at 1900)
+      const propertyAgeMap: Record<string, { year_built_min?: number; year_built_max?: number }> = {
+        'Built 2020+': { year_built_min: 2020 },
+        'Built 2010-2019': { year_built_min: 2010, year_built_max: 2019 },
+        'Built 2000-2009': { year_built_min: 2000, year_built_max: 2009 },
+        'Built 1990-1999': { year_built_min: 1990, year_built_max: 1999 },
+        'Built 1980-1989': { year_built_min: 1980, year_built_max: 1989 },
+        'Built 1970-1979': { year_built_min: 1970, year_built_max: 1979 },
+        'Built 1960-1969': { year_built_min: 1960, year_built_max: 1969 },
+        'Built 1950-1959': { year_built_min: 1950, year_built_max: 1959 },
+        'Built 1940-1949': { year_built_min: 1940, year_built_max: 1949 },
+        'Built 1930-1939': { year_built_min: 1930, year_built_max: 1939 },
+        'Built 1920-1929': { year_built_min: 1920, year_built_max: 1929 },
+        'Built 1900-1919': { year_built_min: 1900, year_built_max: 1919 },
+        'Built Before 1900': { year_built_max: 1899 },
+        'Unknown': {} // Will need special handling for null year_built
+      }
+      const ageParams = propertyAgeMap[value] || {}
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        delete newParams.year_built_min
+        delete newParams.year_built_max
+        return { ...newParams, ...ageParams }
+      })
+      setFilterType(null) // Clear lead type filter when using property age
+    } else if (filter === 'hasContact') {
+      // Map contact info selections to has_contact filter
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        delete newParams.has_phone
+        delete newParams.has_email
+        return { ...newParams, has_contact: value }
+      })
+      setFilterType(null) // Clear lead type filter when using contact filter
+    } else if (filter === 'salesHistory') {
+      // Map sales history selections to sales_history filter
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        delete newParams.sales_count_min
+        return { ...newParams, sales_history: value }
+      })
+      setFilterType(null) // Clear lead type filter when using sales history
+    } else if (filter === 'timeSinceSale') {
+      // Map time since sale selections to time_since_sale filter
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        delete newParams.days
+        delete newParams.days_since_sale_min
+        delete newParams.days_since_sale_max
+        return { ...newParams, time_since_sale: value }
+      })
+      setFilterType(null) // Clear lead type filter when using time since sale
+    } else if (filter === 'annualTax') {
+      // Map annual tax selections to annual_tax filter
+      setFilterParams((prev: any) => {
+        const newParams = { ...prev }
+        delete newParams.tax_amount_min
+        delete newParams.tax_amount_max
+        return { ...newParams, annual_tax: value }
+      })
+      setFilterType(null) // Clear lead type filter when using annual tax
     } else {
       // Handle other filters
       setFilterParams((prev: any) => ({ ...prev, [filter]: value }))
@@ -802,7 +1010,7 @@ export default function MapView() {
   }, [properties, zoom])
 
   // Determine if we should show property list or selected property sidebar
-  const shouldShowList = showPropertyList && (filterParams.municipality || searchQuery || filterType || (data?.properties && data.properties.length > 0))
+  const shouldShowList = showPropertyList && (filterParams.municipality || searchQuery || filterType || filterParams.owner_address || filterParams.owner_city || filterParams.owner_state || (data?.properties && data.properties.length > 0))
   const shouldShowSelectedProperty = selectedProperty !== null && !shouldShowList
   const propertiesToShow = data?.properties || []
   const hasSidebarContent = shouldShowList || shouldShowSelectedProperty
@@ -840,9 +1048,9 @@ export default function MapView() {
           } else {
             console.log('❌ Clearing searchQuery')
             setSearchQuery('')
-            setShowPropertyList(false)
           }
         }}
+        municipality={filterParams.municipality || null}
       />
       
       {/* Selected Property Sidebar (shown when clicking on map) */}

@@ -101,6 +101,17 @@
   align-items: center;
 }
 
+/* Owner suggestions styling */
+.search-bar-suggestion[data-type="owner"] .search-bar-suggestion-icon,
+.search-bar-suggestion[data-type="owner_address"] .search-bar-suggestion-icon {
+  color: #10b981;
+}
+
+.search-bar-suggestion[data-type="owner"] .search-bar-suggestion-text,
+.search-bar-suggestion[data-type="owner_address"] .search-bar-suggestion-text {
+  color: #059669;
+}
+
 .search-bar-suggestion-content {
   flex: 1;
   min-width: 0;

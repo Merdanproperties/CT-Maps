@@ -205,6 +205,7 @@ def _format_properties(properties, db):
                 building_value=prop.building_value,
                 property_type=prop.property_type,
                 land_use=prop.land_use,
+                zoning=prop.zoning,
                 lot_size_sqft=prop.lot_size_sqft,
                 year_built=prop.year_built,
                 last_sale_date=prop.last_sale_date,

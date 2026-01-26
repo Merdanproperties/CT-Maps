@@ -79,70 +79,105 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
         )}
       </div>
 
-      {/* Estimated Value (Top Right) - Safe rendering */}
-      <div className="property-value-section">
-        {getSafeValue('assessed_value') != null && (
-          <>
-            <div className="property-value">{formatShortCurrency(getSafeValue('assessed_value'))}</div>
-            <div className="value-label">Est. Value</div>
-          </>
-        )}
+      {/* Owner Section */}
+      <div className="property-owner">
+        <span className="owner-label">Owner:</span>
+        <span className="owner-value">{getSafeValue('owner_name', 'N/A')}</span>
       </div>
 
-      {/* Details Row - Safe with null checks */}
-      <div className="property-details">
-        {getSafeValue('building_area_sqft') != null && (
-          <div className="detail-row">
-            <Home size={16} className="icon" />
-            <span className="value">{formatNumber(getSafeValue('building_area_sqft'))} sqft</span>
-          </div>
-        )}
+      {/* Details - Compact pairs */}
+      <div className="property-details-compact">
+        {/* Building Area / Lot Size */}
+        {(() => {
+          const buildingArea = getSafeValue('building_area_sqft')
+          const lotSize = getSafeValue('lot_size_sqft')
+          if (buildingArea != null || lotSize != null) {
+            const parts = []
+            if (buildingArea != null) {
+              parts.push(`${formatNumber(buildingArea)} sqft`)
+            }
+            if (lotSize != null) {
+              parts.push(`${formatNumber(lotSize)} sqft lot`)
+            }
+            return (
+              <div className="detail-pair">
+                <span className="detail-value">{parts.join(' / ')}</span>
+              </div>
+            )
+          }
+          return null
+        })()}
 
-        {getSafeValue('lot_size_sqft') != null && (
-          <div className="detail-row">
-            <Home size={16} className="icon" />
-            <span className="value">{formatNumber(getSafeValue('lot_size_sqft'))} lot</span>
-          </div>
-        )}
+        {/* Land Use / Property Type */}
+        {(() => {
+          const landUse = getSafeValue('land_use')
+          const propertyType = getPropertyTypeDisplay()
+          if (landUse || propertyType) {
+            const parts = []
+            if (landUse) parts.push(landUse)
+            if (propertyType) parts.push(propertyType)
+            return (
+              <div className="detail-pair">
+                <span className="detail-value">{parts.join(' / ')}</span>
+              </div>
+            )
+          }
+          return null
+        })()}
 
-        {getPropertyTypeDisplay() && (
-          <div className="detail-row">
-            <Building2 size={16} className="icon" />
-            <span className="value">{getPropertyTypeDisplay()}</span>
-          </div>
-        )}
+        {/* Zoning */}
+        {(() => {
+          const zoning = getSafeValue('zoning')
+          if (zoning) {
+            return (
+              <div className="detail-pair">
+                <span className="detail-value">Zoning: {zoning}</span>
+              </div>
+            )
+          }
+          return null
+        })()}
 
-        {/* Additional fields can be added here safely */}
-        {getSafeValue('bedrooms') != null && (
-          <div className="detail-row">
-            <Home size={16} className="icon" />
-            <span className="value">{getSafeValue('bedrooms')} Bedrooms</span>
-          </div>
-        )}
-
-        {getSafeValue('bathrooms') != null && (
-          <div className="detail-row">
-            <Home size={16} className="icon" />
-            <span className="value">{getSafeValue('bathrooms')} Bathrooms</span>
-          </div>
-        )}
-
-        {Number(getSafeValue('is_absentee', 0)) === 1 && (
-          <div className="detail-row">
-            <Users size={16} className="icon" />
-            <span className="value">Individual Owned</span>
-          </div>
-        )}
+        {/* Year Sold / Last Sale Price */}
+        {(() => {
+          const lastSaleDate = getSafeValue('last_sale_date')
+          const lastSalePrice = getSafeValue('last_sale_price')
+          // Extract year from sale date if it's a date string
+          let yearSold = null
+          if (lastSaleDate) {
+            try {
+              const date = new Date(lastSaleDate)
+              if (!isNaN(date.getTime())) {
+                yearSold = date.getFullYear()
+              }
+            } catch (e) {
+              // If parsing fails, try to extract year from string
+              const yearMatch = String(lastSaleDate).match(/\d{4}/)
+              if (yearMatch) {
+                yearSold = parseInt(yearMatch[0])
+              }
+            }
+          }
+          if (yearSold != null || lastSalePrice != null) {
+            const parts = []
+            if (yearSold != null) {
+              parts.push(String(yearSold))
+            }
+            if (lastSalePrice != null) {
+              parts.push(formatShortCurrency(lastSalePrice) || 'N/A')
+            }
+            return (
+              <div className="detail-pair">
+                <span className="detail-value">{parts.join(' / ')}</span>
+              </div>
+            )
+          }
+          return null
+        })()}
       </div>
 
-      {/* Owner Name (Bottom Right) - Safe */}
-      <div className="equity-section">
-        <div className="equity-value">{getSafeValue('owner_name', 'N/A Owner')}</div>
-        <div className="value-label">Owner</div>
-      </div>
-
-      {/* Contact Information - Always show with safe defaults */}
-      <div className="property-contact">
+      {/* Contact Information - Bottom */}
+      <div className="property-contact-bottom">
         <div className="contact-item">
           <Phone size={14} className="contact-icon" />
           {getSafeValue('owner_phone') ? (

@@ -1,0 +1,244 @@
+.property-comments {
+  background: white;
+  padding: 1rem;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1.5rem;
+}
+
+.comments-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.comments-header h2 {
+  font-size: 1rem;
+  color: #333;
+  margin: 0;
+  font-weight: 600;
+}
+
+.comments-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  color: #666;
+  justify-content: center;
+  font-size: 0.875rem;
+}
+
+.comments-loading .spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.comments-empty {
+  padding: 1rem;
+  text-align: center;
+  color: #999;
+  font-size: 0.875rem;
+}
+
+.comments-empty p {
+  margin: 0;
+  font-style: italic;
+}
+
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.comment-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 4px;
+  border-left: 2px solid #667eea;
+  position: relative;
+}
+
+.comment-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.comment-text {
+  color: #333;
+  line-height: 1.4;
+  margin-bottom: 0.25rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 0.875rem;
+}
+
+.comment-timestamp {
+  font-size: 0.75rem;
+  color: #999;
+  font-style: italic;
+}
+
+.comment-edit-btn {
+  flex-shrink: 0;
+  padding: 0.25rem;
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.comment-item:hover .comment-edit-btn {
+  opacity: 1;
+}
+
+.comment-edit-btn:hover {
+  background: #e5e5e5;
+  color: #333;
+}
+
+.comment-edit {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.comment-edit-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  resize: vertical;
+  min-height: 50px;
+}
+
+.comment-edit-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.comment-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-self: flex-end;
+}
+
+.comment-save-btn,
+.comment-cancel-btn {
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.comment-save-btn {
+  background: #667eea;
+  color: white;
+}
+
+.comment-save-btn:hover:not(:disabled) {
+  background: #5568d3;
+}
+
+.comment-save-btn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.comment-cancel-btn {
+  background: #e5e5e5;
+  color: #666;
+}
+
+.comment-cancel-btn:hover:not(:disabled) {
+  background: #d1d5db;
+}
+
+.comment-form {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e5e5;
+}
+
+.comment-input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  resize: vertical;
+  min-height: 50px;
+  transition: border-color 0.2s;
+}
+
+.comment-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.comment-input:disabled {
+  background: #f3f4f6;
+  cursor: not-allowed;
+}
+
+.comment-submit {
+  flex-shrink: 0;
+  padding: 0.5rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.comment-submit:hover:not(:disabled) {
+  background: #5568d3;
+}
+
+.comment-submit:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.comment-submit .spinner {
+  animation: spin 1s linear infinite;
+}
