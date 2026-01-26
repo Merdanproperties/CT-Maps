@@ -8,7 +8,7 @@ import PropertyCard from '../components/PropertyCard'
 import TopFilterBar from '../components/TopFilterBar'
 import ExportButton from '../components/ExportButton'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { X, ChevronRight, ChevronLeft, PanelRight } from 'lucide-react'
+import { X, ChevronRight, ChevronLeft, PanelRight, XCircle } from 'lucide-react'
 import { MapProvider } from '../components/map/MapProvider'
 import './MapView.css'
 
@@ -38,6 +38,7 @@ export default function MapView() {
   const mapRef = useRef<L.Map | null>(null)
   const lastQueryTimeRef = useRef<number>(0)
   const fetchingMunicipalityBoundsRef = useRef(false) // Flag to track when municipality bounds are being fetched
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   
   // Memoize the bounds change handler
   // When municipality is set, don't update mapBounds to prevent bbox from interfering with municipality filter
@@ -940,6 +941,14 @@ export default function MapView() {
     return activeFilters
   }
 
+  // Clear all filters
+  const handleClearAllFilters = useCallback(() => {
+    setFilterParams({})
+    setFilterType(null)
+    setSearchQuery('')
+    // Note: We don't close the sidebar, just clear filters
+  }, [])
+
   // Determine if we should show property list or selected property sidebar
   const shouldShowList = showPropertyList && (filterParams.municipality || searchQuery || filterType || filterParams.owner_address || filterParams.owner_city || filterParams.owner_state || (data?.properties && data.properties.length > 0))
   const shouldShowSelectedProperty = selectedProperty !== null && !shouldShowList
@@ -962,6 +971,25 @@ export default function MapView() {
     })
   }, [filterParams, searchQuery, filterType, showPropertyList, shouldShowList, data?.total, propertiesToShow.length, isLoading])
 
+  // Scroll to top when properties change to ensure first card is fully visible
+  useEffect(() => {
+    if (scrollContainerRef.current && propertiesToShow.length > 0 && shouldShowList) {
+      scrollContainerRef.current.scrollTop = 0
+      
+      // Add padding-top to scroll container to prevent sticky header from overlapping first card
+      setTimeout(() => {
+        const scrollContainer = scrollContainerRef.current
+        const header = document.querySelector('.property-list-header') as HTMLElement
+        
+        if (scrollContainer && header) {
+          // Calculate header height and add padding-top to scroll container to prevent overlap
+          const headerHeight = header.offsetHeight
+          scrollContainer.style.paddingTop = `${headerHeight}px`
+        }
+      }, 100)
+    }
+  }, [propertiesToShow.length, shouldShowList, data?.total])
+
   return (
     <div className={`map-view ${isSidebarVisible ? 'with-sidebar' : ''}`}>
       <TopFilterBar 
@@ -981,6 +1009,7 @@ export default function MapView() {
             setSearchQuery('')
           }
         }}
+        onClearAllFilters={handleClearAllFilters}
         municipality={filterParams.municipality || null}
         filterParams={filterParams}
       />
@@ -1041,6 +1070,17 @@ export default function MapView() {
                     {filter.label}: {filter.value}
                   </span>
                 ))}
+                {getActiveFilters().length > 0 && (
+                  <button
+                    className="clear-all-filters-btn"
+                    onClick={handleClearAllFilters}
+                    aria-label="Clear all filters"
+                    title="Clear all filters"
+                  >
+                    <XCircle size={14} />
+                    <span>Clear All</span>
+                  </button>
+                )}
               </div>
             </div>
             <div className="property-list-actions">
@@ -1092,7 +1132,7 @@ export default function MapView() {
                 <p>No properties found</p>
               </div>
             ) : (
-              <div className="property-list-scroll">
+              <div className="property-list-scroll" ref={scrollContainerRef}>
                 {propertiesToShow.map((property) => (
                   <div
                     key={property.id}

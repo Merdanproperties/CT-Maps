@@ -12,6 +12,8 @@
   gap: 0.5rem 1rem;
   align-items: start;
   box-sizing: border-box;
+  overflow: visible; /* Ensure all content including address is visible */
+  min-width: 0; /* Allow grid to shrink properly */
 }
 
 .property-card-checkbox {
@@ -26,6 +28,7 @@
 
 .property-header {
   grid-column: 2;
+  grid-row: 1; /* Explicitly set to first row to ensure address is always visible */
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: none;
@@ -33,6 +36,7 @@
   overflow-wrap: break-word;
   max-width: 100%;
   padding-right: 0.5rem;
+  overflow: visible; /* Ensure address text is not clipped */
 }
 
 .property-header h3 {
@@ -43,6 +47,8 @@
   line-height: 1.3;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  overflow: visible; /* Ensure address is fully visible */
+  text-overflow: clip; /* Prevent ellipsis from cutting off text */
 }
 
 .municipality {
