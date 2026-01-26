@@ -19,6 +19,7 @@ class MapLoadEvent(BaseModel):
     map_type: Optional[str] = None  # e.g., 'leaflet', 'mapbox', 'google'
     viewport: Optional[dict] = None  # center, zoom, bounds
     user_agent: Optional[str] = None
+    fallback_reason: Optional[str] = None  # Reason for fallback if applicable
 
 class AnalyticsResponse(BaseModel):
     total_searches: int
@@ -72,13 +73,21 @@ async def track_search(event: SearchEvent, request: Request):
 async def track_map_load(event: MapLoadEvent, request: Request):
     """Track a map load event for analytics"""
     # Store map load event
-    analytics_store['map_loads'].append({
+    map_load_data = {
         'timestamp': datetime.now().isoformat(),
         'map_type': event.map_type or 'leaflet',
         'viewport': event.viewport,
         'user_agent': event.user_agent or request.headers.get('user-agent'),
         'ip': request.client.host if request.client else None
-    })
+    }
+    
+    # Track fallback if applicable
+    if event.fallback_reason:
+        map_load_data['fallback_reason'] = event.fallback_reason
+        map_load_data['fallback'] = True
+        print(f"⚠️ Map fallback tracked: {event.fallback_reason}")
+    
+    analytics_store['map_loads'].append(map_load_data)
     
     # Keep only last 5000 map loads in memory
     if len(analytics_store['map_loads']) > 5000:

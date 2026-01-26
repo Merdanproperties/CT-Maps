@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap, useMapEvents, LayerGroup } from 'react-leaflet'
-import { MapBoundsUpdater } from './MapBoundsUpdater'
+import { Marker, Popup } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { propertyApi, Property, analyticsApi } from '../api/client'
 import { usePropertyQuery } from '../hooks/usePropertyQuery'
 import PropertyCard from '../components/PropertyCard'
@@ -8,157 +9,16 @@ import TopFilterBar from '../components/TopFilterBar'
 import ExportButton from '../components/ExportButton'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { X, ChevronRight, ChevronLeft, PanelRight } from 'lucide-react'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import { MapProvider } from '../components/map/MapProvider'
 import './MapView.css'
 
-// Fix for default marker icons in React-Leaflet
+// Fix for default marker icons in React-Leaflet (needed for LeafletMap component)
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 })
-
-// MapBoundsUpdater removed - not needed for basic functionality
-
-// Component to initialize map reference and set up event listeners
-function MapInitializer({ 
-  mapRef, 
-  setMapBounds, 
-  setIsMapReady, 
-  setCenter, 
-  setZoom, 
-  mapUpdatingRef 
-}: { 
-  mapRef: React.MutableRefObject<L.Map | null>,
-  setMapBounds: (bounds: { north: number; south: number; east: number; west: number }) => void,
-  setIsMapReady: (ready: boolean) => void,
-  setCenter: (center: [number, number]) => void,
-  setZoom: (zoom: number) => void,
-  mapUpdatingRef: React.MutableRefObject<boolean>
-}) {
-  const map = useMap()
-  
-  useEffect(() => {
-    mapRef.current = map
-    
-    // Mark map as ready immediately so bbox queries can work
-    // Also set initial bounds
-    const initialBounds = map.getBounds()
-    setMapBounds({
-      north: initialBounds.getNorth(),
-      south: initialBounds.getSouth(),
-      east: initialBounds.getEast(),
-      west: initialBounds.getWest(),
-    })
-    setIsMapReady(true)
-    
-    // Track map load for analytics
-    const center = map.getCenter()
-    // Determine map provider - check if Mapbox token is configured
-    const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
-    const mapType = mapboxToken ? 'mapbox' : 'leaflet'
-    analyticsApi.trackMapLoad({
-      map_type: mapType,
-      viewport: {
-        center: [center.lat, center.lng],
-        zoom: map.getZoom(),
-        bounds: {
-          north: initialBounds.getNorth(),
-          south: initialBounds.getSouth(),
-          east: initialBounds.getEast(),
-          west: initialBounds.getWest(),
-        }
-      }
-    })
-    
-    // Only listen to user-initiated moves, not programmatic ones
-    let isUserMove = true
-    
-    map.on('movestart', () => {
-      isUserMove = !mapUpdatingRef.current
-    })
-    
-    map.on('moveend', () => {
-      if (isUserMove && !mapUpdatingRef.current) {
-        const center = map.getCenter()
-        setCenter([center.lat, center.lng])
-        setZoom(map.getZoom())
-      }
-      mapUpdatingRef.current = false
-      isUserMove = true
-    })
-    
-    map.on('zoomend', () => {
-      if (isUserMove && !mapUpdatingRef.current) {
-        const zoom = map.getZoom()
-        setZoom(zoom)
-      }
-    })
-  }, [map, mapRef, setMapBounds, setIsMapReady, setCenter, setZoom, mapUpdatingRef])
-  
-  return null
-}
-
-// Component to update map view when center/zoom changes
-function MapUpdater({ center, zoom, skipUpdate, onUpdate }: { 
-  center: [number, number], 
-  zoom: number, 
-  skipUpdate?: boolean,
-  onUpdate?: () => void
-}) {
-  const map = useMap()
-  const isUpdatingRef = useRef(false)
-  const lastCenterRef = useRef<string | null>(null)
-  const lastZoomRef = useRef<number | null>(null)
-  
-  useEffect(() => {
-    if (skipUpdate) {
-      return
-    }
-    
-    // Create a stable string key for center to detect changes
-    const centerKey = `${center[0].toFixed(5)},${center[1].toFixed(5)}`
-    const centerChanged = lastCenterRef.current !== centerKey
-    const zoomChanged = lastZoomRef.current === null || 
-      Math.abs(lastZoomRef.current - zoom) > 0.01
-    
-    if (centerChanged || zoomChanged) {
-      // Don't update if already updating to prevent loops
-      if (isUpdatingRef.current) {
-        return
-      }
-      
-      console.log('🗺️ MapUpdater: Updating map view', { 
-        center, 
-        zoom, 
-        centerChanged, 
-        zoomChanged
-      })
-      
-      isUpdatingRef.current = true
-      if (onUpdate) onUpdate()
-      
-      // Use flyTo for smoother animation
-      map.flyTo(center, zoom, {
-        animate: true,
-        duration: 0.5
-      })
-      
-      // Update refs immediately to prevent duplicate updates
-      lastCenterRef.current = centerKey
-      lastZoomRef.current = zoom
-      
-      // Reset flag after animation
-      setTimeout(() => {
-        isUpdatingRef.current = false
-      }, 600)
-    }
-  }, [center, zoom, map, skipUpdate, onUpdate])
-  
-  return null
-}
 
 export default function MapView() {
   const navigate = useNavigate()
@@ -487,36 +347,6 @@ export default function MapView() {
       features,
     }
   }, [properties])
-
-  // Calculate popup center for selected property
-  const selectedPropertyMarker = useMemo(() => {
-    if (!selectedProperty) return null
-    
-    const geom = selectedProperty.geometry?.geometry
-    let popupCenter: [number, number] = center
-    
-    if (geom?.type === 'Polygon' && geom.coordinates?.[0]?.[0]) {
-      const coords = geom.coordinates[0]
-      const [lng, lat] = coords.reduce(
-        (acc: [number, number], coord: number[]) => [acc[0] + coord[0], acc[1] + coord[1]],
-        [0, 0]
-      )
-      popupCenter = [lat / coords.length, lng / coords.length]
-    } else if (geom?.type === 'Point' && geom.coordinates) {
-      popupCenter = [geom.coordinates[1], geom.coordinates[0]]
-    }
-    
-    return (
-      <Marker key={`selected-${selectedProperty.id}`} position={popupCenter}>
-        <Popup>
-          <PropertyCard
-            property={selectedProperty}
-            onClick={() => navigate(`/property/${selectedProperty.id}`)}
-          />
-        </Popup>
-      </Marker>
-    )
-  }, [selectedProperty, center, navigate])
 
   const handlePropertyClick = useCallback((property: Property) => {
     console.log('🖱️ Property clicked:', property.id, property.address)
@@ -848,12 +678,19 @@ export default function MapView() {
       setFilterType(null) // Clear lead type filter when using sales history
     } else if (filter === 'timeSinceSale') {
       // Map time since sale selections to time_since_sale filter
+      // Backend only supports single value, so take first element if array
+      const timeSinceSaleValue = Array.isArray(value) ? value[0] : value
       setFilterParams((prev: any) => {
         const newParams = { ...prev }
         delete newParams.days
         delete newParams.days_since_sale_min
         delete newParams.days_since_sale_max
-        return { ...newParams, time_since_sale: value }
+        if (timeSinceSaleValue && timeSinceSaleValue !== 'Clear' && timeSinceSaleValue !== null) {
+          newParams.time_since_sale = timeSinceSaleValue
+        } else {
+          delete newParams.time_since_sale
+        }
+        return newParams
       })
       setFilterType(null) // Clear lead type filter when using time since sale
     } else if (filter === 'annualTax') {
@@ -923,59 +760,6 @@ export default function MapView() {
     return null
   }
 
-  // Handle GeoJSON click and add labels
-  const onEachFeature = useCallback((feature: any, layer: L.Layer) => {
-    const featureId = feature.properties?.id
-    if (!featureId) {
-      console.warn('Feature missing id:', feature)
-      return
-    }
-    
-    // Find property by ID - use current properties from data
-    const property = (data?.properties || []).find(p => p.id === featureId)
-    
-    if (property) {
-      // Address number labels are now handled separately via addressNumberMarkers
-      
-      layer.on({
-        click: (e: L.LeafletMouseEvent) => {
-          e.originalEvent.stopPropagation()
-          console.log('Map click - Feature ID:', featureId, 'Property found:', property.id, property.address)
-          handlePropertyClick(property)
-          
-          // Center map on clicked property
-          const geom = property.geometry?.geometry
-          if (geom) {
-            const centroid = getCentroid(geom)
-            if (centroid) {
-              setCenter(centroid)
-              setZoom(18)
-            }
-          }
-        },
-      })
-      
-      // Add hover effect
-      layer.on({
-        mouseover: (e: L.LeafletMouseEvent) => {
-          const layer = e.target
-          layer.setStyle({
-            fillColor: '#667eea',
-            fillOpacity: 0.5,
-            color: '#667eea',
-            weight: 2,
-          })
-        },
-        mouseout: (e: L.LeafletMouseEvent) => {
-          const layer = e.target
-          layer.setStyle(geoJsonStyle())
-        },
-      })
-    } else {
-      console.warn('Property not found for feature ID:', featureId, 'Available IDs:', (data?.properties || []).map(p => p.id).slice(0, 10))
-    }
-  }, [data?.properties, handlePropertyClick, geoJsonStyle, setCenter, setZoom])
-
   // Create markers for address numbers - only show at street level zoom (15+)
   const addressNumberMarkers = useMemo(() => {
     // Only show address numbers when zoomed in to street level
@@ -1008,6 +792,59 @@ export default function MapView() {
     
     return markers
   }, [properties, zoom])
+
+  // Helper function to format filter values for display
+  const formatFilterValue = (key: string, value: any): string => {
+    if (Array.isArray(value)) {
+      return value.join(', ')
+    }
+    if (typeof value === 'string') {
+      // Handle comma-separated strings
+      if (value.includes(',')) {
+        return value.split(',').map(v => v.trim()).join(', ')
+      }
+      return value
+    }
+    return String(value)
+  }
+
+  // Get active filters for display
+  const getActiveFilters = () => {
+    const activeFilters: Array<{ label: string; value: string }> = []
+    
+    if (filterParams.municipality) {
+      activeFilters.push({ label: 'Municipality', value: filterParams.municipality })
+    }
+    if (filterParams.time_since_sale) {
+      activeFilters.push({ label: 'Time Since Sale', value: filterParams.time_since_sale })
+    }
+    if (filterParams.annual_tax) {
+      activeFilters.push({ label: 'Annual Tax', value: filterParams.annual_tax })
+    }
+    if (filterParams.zoning) {
+      activeFilters.push({ label: 'Zoning', value: formatFilterValue('zoning', filterParams.zoning) })
+    }
+    if (filterParams.unit_type) {
+      activeFilters.push({ label: 'Unit Type', value: formatFilterValue('unit_type', filterParams.unit_type) })
+    }
+    if (filterParams.owner_city) {
+      activeFilters.push({ label: 'Owner City', value: formatFilterValue('owner_city', filterParams.owner_city) })
+    }
+    if (filterParams.owner_state) {
+      activeFilters.push({ label: 'Owner State', value: formatFilterValue('owner_state', filterParams.owner_state) })
+    }
+    if (filterParams.owner_address) {
+      activeFilters.push({ label: 'Owner Address', value: filterParams.owner_address })
+    }
+    if (filterParams.sales_history) {
+      activeFilters.push({ label: 'Sales History', value: filterParams.sales_history })
+    }
+    if (filterParams.has_contact) {
+      activeFilters.push({ label: 'Contact Info', value: filterParams.has_contact })
+    }
+    
+    return activeFilters
+  }
 
   // Determine if we should show property list or selected property sidebar
   const shouldShowList = showPropertyList && (filterParams.municipality || searchQuery || filterType || filterParams.owner_address || filterParams.owner_city || filterParams.owner_state || (data?.properties && data.properties.length > 0))
@@ -1051,6 +888,7 @@ export default function MapView() {
           }
         }}
         municipality={filterParams.municipality || null}
+        filterParams={filterParams}
       />
       
       {/* Selected Property Sidebar (shown when clicking on map) */}
@@ -1102,10 +940,14 @@ export default function MapView() {
             <div className="property-list-title">
               <h2>
                 {data?.total ? `Show 1 - ${Math.min((data as any).page_size || data.properties?.length || 100, data.total).toLocaleString()} of ${data.total.toLocaleString()} Results` : 'Properties'}
-                {filterParams.municipality && (
-                  <span className="location-badge">{filterParams.municipality}</span>
-                )}
               </h2>
+              <div className="active-filters">
+                {getActiveFilters().map((filter, index) => (
+                  <span key={index} className="location-badge" title={`${filter.label}: ${filter.value}`}>
+                    {filter.label}: {filter.value}
+                  </span>
+                ))}
+              </div>
             </div>
             <div className="property-list-actions">
               {!sidebarCollapsed && data && data.total > 0 && (
@@ -1198,55 +1040,25 @@ export default function MapView() {
         </div>
       )}
 
-      <div className="map-container-wrapper">
-        <MapContainer
-          center={center}
-          zoom={zoom}
-          style={{ width: '100%', height: '100%' }}
-          whenReady={() => {
-            // Map initialization handled by MapInitializer component
-              setIsMapReady(true)
-          }}
-        >
-        <MapInitializer
-          mapRef={mapRef}
-          setMapBounds={setMapBounds}
-          setIsMapReady={setIsMapReady}
-          setCenter={setCenter}
-          setZoom={setZoom}
-          mapUpdatingRef={mapUpdatingRef}
-        />
-        <MapUpdater 
-          center={center} 
-          zoom={zoom} 
-          skipUpdate={false}
-          onUpdate={() => { mapUpdatingRef.current = true }}
-        />
-        <MapBoundsUpdater 
-          onBoundsChange={handleBoundsChange}
-        />
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        />
-        
-        {geoJsonData.features.length > 0 && (
-          <>
-            <GeoJSON
-              key={`geojson-${geoJsonData.features.length}`}
-              data={geoJsonData as any}
-              style={geoJsonStyle}
-              onEachFeature={onEachFeature}
-            />
-            <LayerGroup>
-              {addressNumberMarkers}
-            </LayerGroup>
-          </>
-        )}
-
-        {selectedPropertyMarker}
-        </MapContainer>
-      </div>
+      <MapProvider
+        center={center}
+        zoom={zoom}
+        geoJsonData={geoJsonData}
+        selectedProperty={selectedProperty}
+        addressNumberMarkers={addressNumberMarkers}
+        onPropertyClick={handlePropertyClick}
+        onBoundsChange={handleBoundsChange}
+        setCenter={setCenter}
+        setZoom={setZoom}
+        setIsMapReady={setIsMapReady}
+        setMapBounds={setMapBounds}
+        mapRef={mapRef}
+        mapUpdatingRef={mapUpdatingRef}
+        geoJsonStyle={geoJsonStyle}
+        getCentroid={getCentroid}
+        properties={properties}
+        navigate={navigate}
+      />
 
       {isLoading && !error && (
         <div className="loading-overlay">

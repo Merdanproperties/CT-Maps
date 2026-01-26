@@ -557,6 +557,7 @@ export const analyticsApi = {
       zoom?: number
       bounds?: { north: number; south: number; east: number; west: number }
     }
+    fallback_reason?: string
   }): Promise<void> => {
     await apiClient.post('/api/analytics/track-map-load', event).catch(() => {
       // Silently fail if analytics tracking fails

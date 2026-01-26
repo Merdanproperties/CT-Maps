@@ -8,9 +8,10 @@ interface TopFilterBarProps {
   onFilterChange?: (filter: string, value: any) => void
   onSearchChange?: (query: string) => void
   municipality?: string | null
+  filterParams?: Record<string, any>
 }
 
-export default function TopFilterBar({ onFilterChange, onSearchChange, municipality }: TopFilterBarProps) {
+export default function TopFilterBar({ onFilterChange, onSearchChange, municipality, filterParams }: TopFilterBarProps) {
   const [selectedFilters, setSelectedFilters] = useState<Record<string, any>>({})
   const [towns, setTowns] = useState<string[]>([])
   const [unitTypeOptions, setUnitTypeOptions] = useState<Array<{property_type: string, land_use: string | null}>>([])
@@ -37,6 +38,68 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, municipal
       })
     }
   }, [municipality])
+
+  // Sync selectedFilters with filterParams prop (for timeSinceSale and other filters)
+  useEffect(() => {
+    if (filterParams) {
+      setSelectedFilters((prev) => {
+        const newFilters = { ...prev }
+        
+        // Sync timeSinceSale (single-select)
+        if (filterParams.time_since_sale) {
+          newFilters.timeSinceSale = filterParams.time_since_sale
+        } else if (filterParams.time_since_sale === undefined && prev.timeSinceSale) {
+          // Only clear if it was explicitly removed (not just missing)
+          delete newFilters.timeSinceSale
+        }
+        
+        // Sync annualTax
+        if (filterParams.annual_tax) {
+          newFilters.annualTax = [filterParams.annual_tax]
+        } else if (filterParams.annual_tax === undefined && prev.annualTax) {
+          delete newFilters.annualTax
+        }
+        
+        // Sync zoning (handle comma-separated string)
+        if (filterParams.zoning) {
+          newFilters.zoning = typeof filterParams.zoning === 'string' 
+            ? filterParams.zoning.split(',').map((z: string) => z.trim())
+            : filterParams.zoning
+        } else if (filterParams.zoning === undefined && prev.zoning) {
+          delete newFilters.zoning
+        }
+        
+        // Sync unitType (handle comma-separated string)
+        if (filterParams.unit_type) {
+          newFilters.unitType = typeof filterParams.unit_type === 'string'
+            ? filterParams.unit_type.split(',').map((u: string) => u.trim())
+            : filterParams.unit_type
+        } else if (filterParams.unit_type === undefined && prev.unitType) {
+          delete newFilters.unitType
+        }
+        
+        // Sync ownerCity (handle comma-separated string)
+        if (filterParams.owner_city) {
+          newFilters.ownerCity = typeof filterParams.owner_city === 'string'
+            ? filterParams.owner_city.split(',').map((c: string) => c.trim())
+            : filterParams.owner_city
+        } else if (filterParams.owner_city === undefined && prev.ownerCity) {
+          delete newFilters.ownerCity
+        }
+        
+        // Sync ownerState (handle comma-separated string)
+        if (filterParams.owner_state) {
+          newFilters.ownerState = typeof filterParams.owner_state === 'string'
+            ? filterParams.owner_state.split(',').map((s: string) => s.trim())
+            : filterParams.owner_state
+        } else if (filterParams.owner_state === undefined && prev.ownerState) {
+          delete newFilters.ownerState
+        }
+        
+        return newFilters
+      })
+    }
+  }, [filterParams])
 
   // Fetch towns on mount
   useEffect(() => {
@@ -348,7 +411,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, municipal
             ]}
             onSelect={(value) => handleFilterSelect('timeSinceSale', value)}
             selected={selectedFilters.timeSinceSale}
-            multiSelect={true}
+            multiSelect={false}
           />
           
           {/* Annual Tax Filter */}
