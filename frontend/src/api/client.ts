@@ -30,9 +30,9 @@ export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
-    'Connection': 'keep-alive', // Hint to browser to keep connection alive
+    // Note: 'Connection' header cannot be set in browser - browser controls this automatically
   },
-  timeout: 30000, // 30 second timeout
+  timeout: 60000, // 60 second timeout (options/autocomplete can be slow on large DB)
   // httpAgent and httpsAgent would be added here if in Node.js environment
 })
 
@@ -61,9 +61,9 @@ function isRetryableError(error: AxiosError): boolean {
     return true
   }
 
-  // Retry on 5xx server errors
-  if (error.response.status >= 500) {
-    return true
+  // Do not retry on 5xx - fail fast so UI doesn't hang 30+ seconds when backend/DB is down
+  if (error.response?.status >= 500) {
+    return false
   }
 
   // Retry on 408 Request Timeout
@@ -79,21 +79,16 @@ function isRetryableError(error: AxiosError): boolean {
   return false
 }
 
-// Add request interceptor with retry logic
+// Add request interceptor with retry logic (no health-check triggers; status from API success/failure)
 apiClient.interceptors.request.use(
   async (config) => {
-    // Check backend health before making request (non-blocking)
-    const healthStatus = healthCheckService.getStatus()
-    if (!healthStatus.isHealthy && Date.now() - healthStatus.lastChecked > 5000) {
-      // Backend might be down, check health in background
-      healthCheckService.checkHealth().catch(() => {})
-    }
-
-    // Add retry count to config if not present
     if (!(config as any).__retryCount) {
       (config as any).__retryCount = 0
     }
-
+    // #region agent log
+    const fullUrl = (config.baseURL || '') + (config.url || '')
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:request',message:'API request start',data:{baseURL:config.baseURL,url:config.url,fullUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,E'})}).catch(()=>{})
+    // #endregion
     console.log('🌐 API Request:', config.method?.toUpperCase(), config.url, config.params)
     return config
   },
@@ -107,40 +102,38 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => {
     console.log('✅ API Response:', response.status, response.config.url)
-    
+    if (!healthCheckService.getStatus().isHealthy) {
+      healthCheckService.setHealthy()
+    }
     // Skip normalization for blob responses (export endpoints)
     if (response.config.responseType === 'blob') {
       return response
     }
-    
-      // Normalize property data in responses for type safety
-      if (response.data && typeof response.data === 'object') {
-        // Normalize properties array
+    // Normalize property data in responses for type safety (don't turn 200 into error on bad shape)
+    if (response.data && typeof response.data === 'object') {
+      try {
         if (Array.isArray(response.data.properties)) {
           response.data.properties = response.data.properties.map((prop: any) => {
-            // Migrate data if needed
             const migrated = migratePropertyData(prop)
-            // Normalize to ensure type safety
             return PropertyNormalizer.normalize(migrated)
           })
         }
-        
-        // Normalize single property
         if (response.data.id || response.data.parcel_id) {
           const migrated = migratePropertyData(response.data)
           response.data = PropertyNormalizer.normalize(migrated)
         }
-        
-        // Validate in development
         if (import.meta.env.DEV) {
           DevelopmentSafety.validateAPIResponse(
             response.config.url || '',
             response.data,
-            {} // Expected structure - will be validated by PropertyNormalizer
+            {}
           )
         }
+      } catch (err) {
+        console.warn('Response shape unexpected for', response.config.url, err)
+        // Return response as-is so caller still gets 200 data
       }
-    
+    }
     return response
   },
   async (error: AxiosError) => {
@@ -173,24 +166,19 @@ apiClient.interceptors.response.use(
     if (config.__retryCount < MAX_RETRIES && isRetryableError(error)) {
       config.__retryCount += 1
       const delay = getRetryDelay(config.__retryCount)
-
       console.log(`🔄 Retrying request (${config.__retryCount}/${MAX_RETRIES}) after ${delay}ms:`, config.url)
-
-      // Wait before retrying
       await new Promise(resolve => setTimeout(resolve, delay))
-
-      // Check backend health before retry
-      try {
-        await healthCheckService.checkHealth()
-      } catch {
-        // Health check failed, but continue with retry anyway
-      }
-
-      // Retry the request
       return apiClient(config)
     }
 
-    // No more retries or non-retryable error
+    // No more retries or non-retryable: mark unhealthy on connection/timeout so banner shows
+    const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED' || error.message?.includes('Network Error'))
+    if (isNetworkError) {
+      healthCheckService.setUnhealthy(error.message || 'Backend unreachable')
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:error',message:'API response error final',data:{code:error.code,message:error.message,url:config?.url,status:error.response?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{})
+    // #endregion
     console.error('❌ API Response Error:', {
       message: error.message,
       url: config?.url,

@@ -113,7 +113,6 @@ def process_geodatabase(gdb_path: str, batch_size: int = 1000, limit: int = None
                     property_data = {
                         'parcel_id': parcel_id,
                         'address': location,
-                        'city': town_name,  # Using town as city
                         'municipality': town_name,
                         'zip_code': None,  # Not in this geodatabase
                         'owner_name': None,  # Not in this geodatabase - need CAMA data

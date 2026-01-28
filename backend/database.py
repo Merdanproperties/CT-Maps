@@ -16,8 +16,15 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Add connect_timeout so health check and requests fail fast when DB is unreachable
+db_url = settings.database_url
+if "?" in db_url:
+    db_url += "&connect_timeout=3"
+else:
+    db_url += "?connect_timeout=3"
+
 engine = create_engine(
-    settings.database_url,
+    db_url,
     pool_size=10,  # Support parallel workers
     max_overflow=20,  # Allow additional connections during peak load
     pool_pre_ping=True,  # Verify connections before using

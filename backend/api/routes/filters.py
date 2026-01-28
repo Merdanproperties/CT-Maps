@@ -194,7 +194,6 @@ def _format_properties(properties, db):
                 id=prop.id,
                 parcel_id=prop.parcel_id,
                 address=prop.address,
-                city=prop.city,
                 municipality=prop.municipality,
                 zip_code=prop.zip_code,
                 owner_name=prop.owner_name,

@@ -46,7 +46,7 @@
   min-width: 280px;
 }
 
-/* Address number labels on map */
+/* Address labels on map - matching Torrington style */
 .property-number-label {
   background: transparent !important;
   border: none !important;
@@ -67,7 +67,9 @@
   pointer-events: none;
   user-select: none;
   line-height: 1.2;
-  min-width: 20px;
+  min-width: 40px;
+  max-width: 180px;
+  display: inline-block;
 }
 
 .map-error {
@@ -355,6 +357,18 @@
 
 .property-list-scroll > .property-list-item:first-child .property-card {
   overflow: visible;
+}
+
+/* Ensure address in property card header is always visible - prevent overlap with sticky header */
+.property-list-scroll .property-card .property-header {
+  position: relative;
+  z-index: 1;
+  padding-top: 0.25rem; /* Add small padding to ensure address is not cut off */
+}
+
+.property-list-scroll .property-card .property-header h3 {
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .property-list-item {

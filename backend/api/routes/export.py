@@ -86,7 +86,6 @@ async def export_csv(
     writer.writerow([
         'Parcel ID',
         'Address',
-        'City',
         'Municipality',
         'Zip Code',
         'Owner Name',
@@ -117,7 +116,6 @@ async def export_csv(
         writer.writerow([
             prop.parcel_id,
             prop.address or '',
-            prop.city or '',
             prop.municipality or '',
             prop.zip_code or '',
             prop.owner_name or '',
@@ -227,7 +225,6 @@ async def export_json(
         results.append({
             'parcel_id': prop.parcel_id,
             'address': prop.address,
-            'city': prop.city,
             'municipality': prop.municipality,
             'zip_code': prop.zip_code,
             'owner_name': prop.owner_name,
@@ -338,7 +335,6 @@ async def export_excel(
     headers = [
         'Parcel ID',
         'Address',
-        'City',
         'Municipality',
         'Zip Code',
         'Owner Name',
@@ -380,30 +376,29 @@ async def export_excel(
     for row_idx, prop in enumerate(properties, start=2):
         ws.cell(row=row_idx, column=1, value=prop.parcel_id)
         ws.cell(row=row_idx, column=2, value=prop.address or '')
-        ws.cell(row=row_idx, column=3, value=prop.city or '')
-        ws.cell(row=row_idx, column=4, value=prop.municipality or '')
-        ws.cell(row=row_idx, column=5, value=prop.zip_code or '')
-        ws.cell(row=row_idx, column=6, value=prop.owner_name or '')
-        ws.cell(row=row_idx, column=7, value=prop.owner_address or '')
-        ws.cell(row=row_idx, column=8, value=prop.owner_city or '')
-        ws.cell(row=row_idx, column=9, value=prop.owner_state or '')
-        ws.cell(row=row_idx, column=10, value=prop.owner_zip or '')
-        ws.cell(row=row_idx, column=11, value=prop.assessed_value or '')
-        ws.cell(row=row_idx, column=12, value=prop.land_value or '')
-        ws.cell(row=row_idx, column=13, value=prop.building_value or '')
-        ws.cell(row=row_idx, column=14, value=prop.property_type or '')
-        ws.cell(row=row_idx, column=15, value=prop.land_use or '')
-        ws.cell(row=row_idx, column=16, value=prop.lot_size_sqft or '')
-        ws.cell(row=row_idx, column=17, value=prop.building_area_sqft or '')
-        ws.cell(row=row_idx, column=18, value=prop.year_built or '')
-        ws.cell(row=row_idx, column=19, value=prop.bedrooms or '')
-        ws.cell(row=row_idx, column=20, value=prop.bathrooms or '')
-        ws.cell(row=row_idx, column=21, value=prop.last_sale_date.isoformat() if prop.last_sale_date else '')
-        ws.cell(row=row_idx, column=22, value=prop.last_sale_price or '')
-        ws.cell(row=row_idx, column=23, value=prop.equity_estimate or '')
-        ws.cell(row=row_idx, column=24, value='Yes' if prop.is_absentee == 1 else 'No')
-        ws.cell(row=row_idx, column=25, value='Yes' if prop.is_vacant == 1 else 'No')
-        ws.cell(row=row_idx, column=26, value=prop.days_since_sale or '')
+        ws.cell(row=row_idx, column=3, value=prop.municipality or '')
+        ws.cell(row=row_idx, column=4, value=prop.zip_code or '')
+        ws.cell(row=row_idx, column=5, value=prop.owner_name or '')
+        ws.cell(row=row_idx, column=6, value=prop.owner_address or '')
+        ws.cell(row=row_idx, column=7, value=prop.owner_city or '')
+        ws.cell(row=row_idx, column=8, value=prop.owner_state or '')
+        ws.cell(row=row_idx, column=9, value=prop.owner_zip or '')
+        ws.cell(row=row_idx, column=10, value=prop.assessed_value or '')
+        ws.cell(row=row_idx, column=11, value=prop.land_value or '')
+        ws.cell(row=row_idx, column=12, value=prop.building_value or '')
+        ws.cell(row=row_idx, column=13, value=prop.property_type or '')
+        ws.cell(row=row_idx, column=14, value=prop.land_use or '')
+        ws.cell(row=row_idx, column=15, value=prop.lot_size_sqft or '')
+        ws.cell(row=row_idx, column=16, value=prop.building_area_sqft or '')
+        ws.cell(row=row_idx, column=17, value=prop.year_built or '')
+        ws.cell(row=row_idx, column=18, value=prop.bedrooms or '')
+        ws.cell(row=row_idx, column=19, value=prop.bathrooms or '')
+        ws.cell(row=row_idx, column=20, value=prop.last_sale_date.isoformat() if prop.last_sale_date else '')
+        ws.cell(row=row_idx, column=21, value=prop.last_sale_price or '')
+        ws.cell(row=row_idx, column=22, value=prop.equity_estimate or '')
+        ws.cell(row=row_idx, column=23, value='Yes' if prop.is_absentee == 1 else 'No')
+        ws.cell(row=row_idx, column=24, value='Yes' if prop.is_vacant == 1 else 'No')
+        ws.cell(row=row_idx, column=25, value=prop.days_since_sale or '')
     
     # Auto-adjust column widths
     for col in ws.columns:

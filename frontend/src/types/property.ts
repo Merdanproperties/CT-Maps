@@ -12,7 +12,6 @@ export interface PropertyBase {
   id: number
   parcel_id: string
   address: string | null
-  city: string | null
   municipality: string | null
   zip_code: string | null
   geometry: {
@@ -123,7 +122,6 @@ export interface PropertyCardData {
   id: number
   parcel_id: string
   address: string | null
-  city: string | null
   municipality: string | null
   zip_code: string | null
   owner_name: string | null
@@ -160,7 +158,6 @@ export class PropertyNormalizer {
       id: Number(property.id) || 0,
       parcel_id: String(property.parcel_id || ''),
       address: property.address || null,
-      city: property.city || null,
       municipality: property.municipality || null,
       zip_code: property.zip_code || null,
       
@@ -277,7 +274,6 @@ export class PropertyNormalizer {
       id: normalized.id,
       parcel_id: normalized.parcel_id,
       address: normalized.address,
-      city: normalized.city,
       municipality: normalized.municipality,
       zip_code: normalized.zip_code,
       owner_name: normalized.owner_name,

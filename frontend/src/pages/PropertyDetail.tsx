@@ -335,7 +335,7 @@ export default function PropertyDetail() {
             {(() => {
               const zillowUrl = generateZillowUrl(
                 getSafe('address'),
-                getSafe('city'),
+                getSafe('municipality'),
                 getSafe('zip_code')
               )
               if (zillowUrl) {
@@ -368,7 +368,7 @@ export default function PropertyDetail() {
         {/* Image Gallery */}
         <PropertyImageGallery
           address={getSafe('address')}
-          city={getSafe('city')}
+          city={getSafe('municipality')}
           parcelId={getSafe('parcel_id')}
           images={getSafe('images')}
         />

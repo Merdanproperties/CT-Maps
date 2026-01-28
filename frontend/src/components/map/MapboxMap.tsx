@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import Map, { Source, Layer, Marker, Popup } from 'react-map-gl'
+import Map, { Source, Layer, Marker } from 'react-map-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { MapComponentProps } from './MapComponentProps'
 import { analyticsApi } from '../../api/client'
-import PropertyCard from '../PropertyCard'
 import './MapboxMap.css'
 
 export function MapboxMap(props: MapComponentProps) {
@@ -31,9 +30,6 @@ export function MapboxMap(props: MapComponentProps) {
   // Can be overridden via VITE_MAPBOX_STYLE environment variable
   const mapboxStyle = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/mapbox/satellite-streets-v12'
   const [mapInstance, setMapInstance] = useState<any>(null)
-  const [showPopup, setShowPopup] = useState(false)
-  const [popupProperty, setPopupProperty] = useState<typeof selectedProperty>(null)
-  const [popupLngLat, setPopupLngLat] = useState<[number, number] | null>(null)
   const [hasError, setHasError] = useState(false)
   const lastBoundsRef = useRef<string | null>(null)
   const boundsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -46,30 +42,40 @@ export function MapboxMap(props: MapComponentProps) {
     return match ? match[1] : null
   }
 
-  // Create address number markers for Mapbox - only show at street level zoom (15+)
+  // Create address markers for Mapbox - only show at street level zoom (15+)
   const mapboxAddressMarkers = useMemo(() => {
-    // Only show address numbers when zoomed in to street level
-    if (zoom < 15 || !properties || properties.length === 0) return []
+    // Only show addresses when zoomed in to street level
+    if (zoom < 15 || !properties || properties.length === 0) {
+      return []
+    }
     
     const markers: JSX.Element[] = []
     
     properties.forEach((property) => {
-      const streetNumber = getStreetNumber(property.address)
-      if (streetNumber && property.geometry?.geometry) {
-        const centroid = getCentroid(property.geometry.geometry)
-        if (centroid) {
-          markers.push(
-            <Marker
-              key={`mapbox-label-${property.id}`}
-              longitude={centroid[1]}
-              latitude={centroid[0]}
-              anchor="center"
-            >
-              <div className="address-number">{streetNumber}</div>
-            </Marker>
-          )
-        }
+      const address = property.address
+      if (!address || !property.geometry?.geometry) {
+        return
       }
+      
+      const centroid = getCentroid(property.geometry.geometry)
+      if (!centroid) {
+        return
+      }
+      
+      // Extract street number for display (matching Torrington style)
+      const streetNumber = getStreetNumber(address)
+      const displayText = streetNumber || address
+      
+      markers.push(
+        <Marker
+          key={`mapbox-label-${property.id}`}
+          longitude={centroid[1]}
+          latitude={centroid[0]}
+          anchor="center"
+        >
+          <div className="address-number">{displayText}</div>
+        </Marker>
+      )
     })
     
     return markers
@@ -211,7 +217,7 @@ export function MapboxMap(props: MapComponentProps) {
     throw new Error(`Mapbox error: ${error.message || 'Unknown error'}`)
   }, [])
 
-  // Handle feature click
+  // Handle feature click - disabled popup, only update sidebar
   const onFeatureClick = useCallback((event: any) => {
     const feature = event.features?.[0]
     if (!feature) return
@@ -220,13 +226,8 @@ export function MapboxMap(props: MapComponentProps) {
     const property = props.properties.find(p => p.id === propertyId)
     
     if (property) {
+      // Update sidebar but don't show popup on map
       props.onPropertyClick(property)
-      
-      // Show popup
-      const [lng, lat] = event.lngLat
-      setPopupLngLat([lat, lng])
-      setPopupProperty(property)
-      setShowPopup(true)
 
       // Center map on clicked property
       const geom = property.geometry?.geometry
@@ -240,33 +241,7 @@ export function MapboxMap(props: MapComponentProps) {
     }
   }, [props, getCentroid, setCenter, setZoom])
 
-  // Update popup when selected property changes
-  useEffect(() => {
-    if (selectedProperty && mapInstance) {
-      const geom = selectedProperty.geometry?.geometry
-      let popupCenter: [number, number] | null = null
-      
-      if (geom?.type === 'Polygon' && geom.coordinates?.[0]?.[0]) {
-        const coords = geom.coordinates[0]
-        const [lng, lat] = coords.reduce(
-          (acc: [number, number], coord: number[]) => [acc[0] + coord[0], acc[1] + coord[1]],
-          [0, 0]
-        )
-        popupCenter = [lat / coords.length, lng / coords.length]
-      } else if (geom?.type === 'Point' && geom.coordinates) {
-        popupCenter = [geom.coordinates[1], geom.coordinates[0]]
-      }
-
-      if (popupCenter) {
-        setPopupLngLat(popupCenter)
-        setPopupProperty(selectedProperty)
-        setShowPopup(true)
-      }
-    } else {
-      setShowPopup(false)
-      setPopupProperty(null)
-    }
-  }, [selectedProperty, mapInstance])
+  // Popup functionality disabled - property details shown in sidebar only
 
   const style = geoJsonStyle()
 
@@ -296,15 +271,17 @@ export function MapboxMap(props: MapComponentProps) {
             setZoom(e.target.getZoom())
           }
         }}
-        interactiveLayerIds={['properties-layer']}
+        interactiveLayerIds={['properties-layer', 'properties-points-layer']}
         onClick={onFeatureClick}
       >
         {/* GeoJSON Source and Layer */}
         {geoJsonData.features.length > 0 && (
           <Source id="properties" type="geojson" data={geoJsonData}>
+            {/* Polygon layer for properties with polygon geometry */}
             <Layer
               id="properties-layer"
               type="fill"
+              filter={['==', ['geometry-type'], 'Polygon']}
               paint={{
                 'fill-color': style.fillColor,
                 'fill-opacity': style.fillOpacity,
@@ -314,9 +291,23 @@ export function MapboxMap(props: MapComponentProps) {
             <Layer
               id="properties-outline"
               type="line"
+              filter={['==', ['geometry-type'], 'Polygon']}
               paint={{
                 'line-color': style.color,
                 'line-width': style.weight,
+              }}
+            />
+            {/* Circle layer for properties with Point geometry */}
+            <Layer
+              id="properties-points-layer"
+              type="circle"
+              filter={['==', ['geometry-type'], 'Point']}
+              paint={{
+                'circle-color': style.fillColor,
+                'circle-opacity': style.fillOpacity,
+                'circle-radius': 6,
+                'circle-stroke-color': style.color,
+                'circle-stroke-width': style.weight,
               }}
             />
           </Source>
@@ -324,23 +315,6 @@ export function MapboxMap(props: MapComponentProps) {
 
         {/* Address number markers - shown when zoomed in (zoom >= 15) */}
         {mapboxAddressMarkers}
-
-        {/* Selected property popup */}
-        {showPopup && popupProperty && popupLngLat && (
-          <Popup
-            longitude={popupLngLat[1]}
-            latitude={popupLngLat[0]}
-            anchor="bottom"
-            onClose={() => setShowPopup(false)}
-            closeButton={true}
-            closeOnClick={false}
-          >
-            <PropertyCard
-              property={popupProperty}
-              onClick={() => navigate(`/property/${popupProperty.id}`)}
-            />
-          </Popup>
-        )}
       </Map>
     </div>
   )

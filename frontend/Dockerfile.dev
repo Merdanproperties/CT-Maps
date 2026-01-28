@@ -1,0 +1,14 @@
+# CT Maps frontend - Vite dev server (for docker compose)
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 3000
+
+# --host so server is reachable from host; proxy target set via VITE_PROXY_TARGET in compose
+CMD ["npm", "run", "dev", "--", "--host"]

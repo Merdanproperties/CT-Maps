@@ -85,3 +85,55 @@
 body.export-menu-open {
   overflow: hidden;
 }
+
+/* Mobile-specific styles */
+@media (max-width: 768px) {
+  .export-button-container {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Mobile: Larger touch target for export button */
+  .export-button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0.875rem 1.25rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    gap: 0.625rem;
+  }
+
+  /* Mobile: Better dropdown menu positioning */
+  .export-menu {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    right: auto;
+    top: auto;
+    transform: translateX(-50%);
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+    min-width: 200px;
+    max-width: calc(100vw - 40px);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1002;
+  }
+
+  /* Mobile: Ensure dropdown appears above button on mobile */
+  .export-dropdown {
+    position: relative;
+  }
+
+  /* Mobile: Better option sizing for touch */
+  .export-option {
+    min-height: 48px;
+    padding: 1rem 1.25rem;
+    font-size: 0.9375rem;
+    gap: 1rem;
+  }
+
+  /* Mobile: Export count visibility */
+  .export-count {
+    font-size: 0.875rem;
+  }
+}

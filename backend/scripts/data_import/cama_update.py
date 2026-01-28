@@ -222,9 +222,18 @@ def update_property_from_cleaned_excel(
             prop.year_built = db_record['year_built']
         updates['year_built'] = db_record['year_built']
     
-    # Update municipality
+    # Update municipality from Excel "Property City" (source of truth)
+    if 'municipality' in db_record and db_record['municipality']:
+        if not dry_run:
+            prop.municipality = db_record['municipality']
+        updates['municipality'] = db_record['municipality']
+    else:
+        # Fallback to parameter if Excel doesn't have "Property City"
+        if not dry_run:
+            prop.municipality = municipality
+        updates['municipality'] = municipality
+
     if not dry_run:
-        prop.municipality = municipality
         prop.last_updated = date.today()
     
     return updates

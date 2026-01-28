@@ -287,6 +287,35 @@
   font-weight: 500;
 }
 
+/* Clear All Filters Button in Nav Bar */
+.clear-all-filters-btn-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #991b1b;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.clear-all-filters-btn-nav:hover {
+  background: #fecaca;
+  border-color: #fca5a5;
+  color: #7f1d1d;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.clear-all-filters-btn-nav:active {
+  transform: translateY(0);
+}
+
 .filter-text-input-wrapper {
   position: relative;
   display: flex;
@@ -422,5 +451,163 @@
     margin-bottom: 0.75rem;
     margin-right: 0;
     padding-right: 0;
+  }
+
+  .filter-bar-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .filter-search-section {
+    width: 100%;
+    max-width: 100%;
+    order: 2;
+  }
+
+  .filter-dropdowns {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    order: 3;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.25rem;
+  }
+
+  /* Mobile: Better touch targets for filter buttons */
+  .filter-dropdown-btn {
+    min-height: 44px;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.8125rem;
+    flex-shrink: 0;
+  }
+
+  /* Mobile: Clear All button in nav bar */
+  .clear-all-filters-btn-nav {
+    order: 4;
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+  }
+
+  /* Mobile: Ensure Save Search button is visible and accessible */
+  .save-search-btn {
+    order: 5;
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+  }
+
+  /* Mobile: Text input adjustments */
+  .filter-text-input-wrapper {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .filter-text-input {
+    width: 100%;
+    min-height: 44px;
+    font-size: 0.875rem;
+  }
+
+  /* Mobile: Dropdown menu adjustments */
+  .dropdown-menu {
+    max-width: calc(100vw - 2rem);
+    left: 0;
+    right: auto;
+    z-index: 1000;
+  }
+
+  /* Mobile: Ensure dropdowns don't get cut off */
+  .filter-dropdown {
+    position: static;
+  }
+
+  .filter-autocomplete-dropdown {
+    max-width: calc(100vw - 2rem);
+    left: 0;
+    right: 0;
+    z-index: 1001;
+  }
+
+  /* Mobile: When sidebar is open, make dropdowns modal-like */
+  .map-view.with-sidebar .dropdown-menu {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 90vw;
+    max-height: 70vh;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    z-index: 1003;
+    border: 2px solid #e5e7eb;
+  }
+
+  .map-view.with-sidebar .dropdown-overlay {
+    z-index: 1002;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+  }
+
+  .map-view.with-sidebar .filter-autocomplete-dropdown {
+    position: fixed;
+    top: auto;
+    bottom: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 90vw;
+    max-height: 50vh;
+    z-index: 1003;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  }
+
+  /* Mobile: When sidebar is open, make filter bar more compact */
+  .map-view.with-sidebar .top-filter-bar {
+    z-index: 999;
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* Mobile: Compact filter bar when sidebar is visible */
+  .map-view.with-sidebar .filter-bar-content {
+    gap: 0.5rem;
+  }
+
+  .map-view.with-sidebar .merdan-logo {
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  /* Mobile: Ensure filter dropdowns are accessible above sidebar */
+  .map-view.with-sidebar .dropdown-menu {
+    z-index: 1002;
+    position: fixed;
+    max-width: calc(100vw - 2rem);
+    max-height: 60vh;
+  }
+
+  .map-view.with-sidebar .filter-autocomplete-dropdown {
+    z-index: 1002;
+    position: fixed;
+  }
+
+  /* Mobile: Better dropdown positioning when sidebar is open */
+  .map-view.with-sidebar .filter-dropdown {
+    position: relative;
+  }
+
+  /* Mobile: Ensure dropdown overlay covers sidebar */
+  .map-view.with-sidebar .dropdown-overlay {
+    z-index: 1001;
+    background: rgba(0, 0, 0, 0.3);
   }
 }

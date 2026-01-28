@@ -9,27 +9,20 @@ import { healthCheckService } from './services/healthCheck'
 
 function App() {
   useEffect(() => {
-    // Check backend health on app startup
-    const initializeHealthCheck = async () => {
-      console.log('🔍 Checking backend connection on startup...')
-      const isHealthy = await healthCheckService.waitForHealthy(10000) // Wait up to 10 seconds
-      
-      if (isHealthy) {
-        console.log('✅ Backend is healthy and ready')
+    // One initial /health check on load only; no periodic monitoring (status from real API success/failure)
+    const init = async () => {
+      const status = await healthCheckService.checkHealth(false)
+      if (status.isHealthy) {
+        if (status.database === 'connected') console.log('✅ Backend is healthy')
+        else if (status.database === 'disconnected') console.warn('⚠️ Database temporarily unavailable; backend is reachable')
       } else {
-        console.warn('⚠️ Backend health check failed or timed out. Continuing anyway...')
+        const err = status.error ?? 'Backend unreachable'
+        if (err === 'Connection check in progress') return
+        if (err.includes('timeout') || err.toLowerCase().includes('not responding')) console.warn('⚠️ Backend unavailable; check it is running on port 8000')
+        else console.warn('⚠️ Backend check failed:', err)
       }
-      
-      // Start continuous monitoring
-      healthCheckService.startMonitoring()
     }
-
-    initializeHealthCheck()
-
-    // Cleanup on unmount
-    return () => {
-      healthCheckService.stopMonitoring()
-    }
+    init()
   }, [])
 
   return (

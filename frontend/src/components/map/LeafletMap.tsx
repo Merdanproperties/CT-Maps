@@ -1,11 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap, LayerGroup } from 'react-leaflet'
+import { MapContainer, TileLayer, GeoJSON, Marker, useMap, LayerGroup } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapBoundsUpdater } from '../../pages/MapBoundsUpdater'
 import { MapComponentProps } from './MapComponentProps'
 import { analyticsApi } from '../../api/client'
-import PropertyCard from '../PropertyCard'
 
 // Fix for default marker icons in React-Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -162,7 +161,7 @@ export function LeafletMap(props: MapComponentProps) {
     navigate
   } = props
 
-  // Handle GeoJSON click and add labels
+  // Handle GeoJSON click and add labels - popup disabled, only update sidebar
   const onEachFeature = useCallback((feature: any, layer: L.Layer) => {
     const featureId = feature.properties?.id
     if (!featureId) {
@@ -178,6 +177,7 @@ export function LeafletMap(props: MapComponentProps) {
         click: (e: L.LeafletMouseEvent) => {
           e.originalEvent.stopPropagation()
           console.log('Map click - Feature ID:', featureId, 'Property found:', property.id, property.address)
+          // Update sidebar but don't show popup on map
           props.onPropertyClick(property)
           
           // Center map on clicked property
@@ -213,33 +213,8 @@ export function LeafletMap(props: MapComponentProps) {
     }
   }, [props.properties, props.onPropertyClick, geoJsonStyle, setCenter, setZoom])
 
-  // Calculate popup center for selected property
-  const selectedPropertyMarker = selectedProperty ? (() => {
-    const geom = selectedProperty.geometry?.geometry
-    let popupCenter: [number, number] = center
-    
-    if (geom?.type === 'Polygon' && geom.coordinates?.[0]?.[0]) {
-      const coords = geom.coordinates[0]
-      const [lng, lat] = coords.reduce(
-        (acc: [number, number], coord: number[]) => [acc[0] + coord[0], acc[1] + coord[1]],
-        [0, 0]
-      )
-      popupCenter = [lat / coords.length, lng / coords.length]
-    } else if (geom?.type === 'Point' && geom.coordinates) {
-      popupCenter = [geom.coordinates[1], geom.coordinates[0]]
-    }
-    
-    return (
-      <Marker key={`selected-${selectedProperty.id}`} position={popupCenter}>
-        <Popup>
-          <PropertyCard
-            property={selectedProperty}
-            onClick={() => navigate(`/property/${selectedProperty.id}`)}
-          />
-        </Popup>
-      </Marker>
-    )
-  })() : null
+  // Popup functionality disabled - property details shown in sidebar only
+  const selectedPropertyMarker = null
 
   return (
     <div className="map-container-wrapper">

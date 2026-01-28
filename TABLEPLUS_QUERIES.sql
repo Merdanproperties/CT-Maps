@@ -82,14 +82,14 @@ WHERE lot_size_sqft IS NOT NULL AND lot_size_sqft > 0
 ORDER BY lot_size_sqft DESC
 LIMIT 20;
 
--- 8. Properties in a specific town (change 'Bridgeport' to any town)
+-- 8. Properties in a specific town (case-insensitive - change 'Bridgeport' to any town)
 SELECT 
     parcel_id,
     address,
     property_type,
     ROUND(lot_size_sqft, 0) as lot_size_sqft
 FROM properties
-WHERE municipality = 'Bridgeport'
+WHERE LOWER(municipality) = LOWER('Bridgeport')  -- Case-insensitive match
 ORDER BY address
 LIMIT 100;
 
@@ -114,3 +114,74 @@ FROM properties
 WHERE additional_data IS NOT NULL
   AND additional_data->>'cama_link' IS NOT NULL
 LIMIT 20;
+
+-- 11. DELETE all towns except Bridgeport, Middletown, and Torrington
+-- WARNING: This will permanently delete data! Use with caution.
+-- First, delete related records from child tables
+DELETE FROM property_comments
+WHERE property_id IN (
+    SELECT id FROM properties 
+    WHERE municipality NOT IN ('Bridgeport', 'Middletown', 'Torrington')
+       OR municipality IS NULL
+);
+
+DELETE FROM sales
+WHERE property_id IN (
+    SELECT id FROM properties 
+    WHERE municipality NOT IN ('Bridgeport', 'Middletown', 'Torrington')
+       OR municipality IS NULL
+);
+
+-- Then delete the properties themselves
+DELETE FROM properties
+WHERE municipality NOT IN ('Bridgeport', 'Middletown', 'Torrington')
+   OR municipality IS NULL;
+
+-- 12. Town import statistics and coverage analysis (case-sensitive - shows duplicates)
+SELECT 
+    municipality as town,
+    COUNT(*) as properties_imported,
+    COUNT(*) FILTER (WHERE address IS NOT NULL AND address != '') as properties_with_address,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE address IS NOT NULL AND address != '') / NULLIF(COUNT(*), 0), 2) as address_coverage_pct,
+    COUNT(*) FILTER (WHERE owner_name IS NOT NULL AND owner_name != '') as properties_with_owner,
+    COUNT(*) FILTER (WHERE assessed_value IS NOT NULL) as properties_with_assessment,
+    MIN(last_updated) as first_import,
+    MAX(last_updated) as last_import
+FROM properties
+WHERE municipality IS NOT NULL
+GROUP BY municipality
+ORDER BY properties_imported DESC;
+
+-- 12b. Town import statistics (case-insensitive - combines duplicates like "FAIRFIELD" and "Fairfield")
+SELECT 
+    INITCAP(LOWER(municipality)) as town,  -- Normalize to title case for display
+    COUNT(*) as properties_imported,
+    COUNT(*) FILTER (WHERE address IS NOT NULL AND address != '') as properties_with_address,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE address IS NOT NULL AND address != '') / NULLIF(COUNT(*), 0), 2) as address_coverage_pct,
+    COUNT(*) FILTER (WHERE owner_name IS NOT NULL AND owner_name != '') as properties_with_owner,
+    COUNT(*) FILTER (WHERE assessed_value IS NOT NULL) as properties_with_assessment,
+    MIN(last_updated) as first_import,
+    MAX(last_updated) as last_import
+FROM properties
+WHERE municipality IS NOT NULL
+GROUP BY LOWER(municipality)  -- Group by lowercase to combine case variations
+ORDER BY properties_imported DESC;
+
+-- 13. Normalize all municipality names to title case (fixes case sensitivity issues)
+-- WARNING: This will update all municipality names. Review first with query below.
+-- First, preview what will change:
+SELECT 
+    municipality as current_name,
+    INITCAP(LOWER(municipality)) as normalized_name,
+    COUNT(*) as property_count
+FROM properties
+WHERE municipality IS NOT NULL
+  AND municipality != INITCAP(LOWER(municipality))  -- Only show ones that will change
+GROUP BY municipality
+ORDER BY property_count DESC;
+
+-- Then run this to actually normalize (uncomment to execute):
+-- UPDATE properties
+-- SET municipality = INITCAP(LOWER(municipality))
+-- WHERE municipality IS NOT NULL
+--   AND municipality != INITCAP(LOWER(municipality));

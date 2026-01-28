@@ -147,8 +147,33 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Raw CSV file not found: {file_path}")
     
-    # Read CSV
-    df = pd.read_csv(file_path, low_memory=False)
+    # Read CSV with error handling for malformed lines
+    # Try multiple methods for compatibility with different pandas versions
+    df = None
+    try:
+        # Pandas 1.3+ with on_bad_lines parameter
+        # Note: low_memory is not supported with engine='python', so we omit it
+        df = pd.read_csv(file_path, on_bad_lines='skip', engine='python')
+    except TypeError:
+        # Older pandas or parameter not available, try without on_bad_lines
+        try:
+            df = pd.read_csv(file_path, engine='python', sep=',', quotechar='"', 
+                           error_bad_lines=False, warn_bad_lines=True)
+            print(f"  ⚠️  Using legacy CSV parsing (some malformed lines may be skipped)")
+        except TypeError:
+            # Very old pandas, try basic read
+            try:
+                df = pd.read_csv(file_path, low_memory=False)
+                print(f"  ⚠️  Using basic CSV parsing")
+            except Exception as e3:
+                raise ValueError(f"Could not read CSV file: {e3}")
+    except Exception as e:
+        # Other error, try with warnings
+        try:
+            df = pd.read_csv(file_path, on_bad_lines='warn', engine='python')
+            print(f"  ⚠️  Some CSV lines had errors and were skipped")
+        except Exception as e2:
+            raise ValueError(f"Could not read CSV file: {e2}. Original error: {e}")
     
     print(f"  Loaded {len(df)} records from raw CSV")
     print(f"  Total columns in CSV: {len(df.columns)}")
@@ -156,7 +181,7 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
     # Map column names - handle both Bridgeport and Torrington formats
     column_mapping = {}
     
-    # Address column mapping
+    # Address column mapping - handle multiple formats
     if 'Property Address' in df.columns:
         column_mapping['Property Address'] = 'Property Address'
         address_col = 'Property Address'
@@ -164,8 +189,47 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
         column_mapping['Property Address'] = 'Location'
         address_col = 'Location'
         df['Property Address'] = df['Location']  # Create alias
+    elif 'Street_Number' in df.columns and 'Street_Name' in df.columns:
+        # Construct address from Street_Number and Street_Name
+        print(f"  Constructing address from Street_Number and Street_Name...")
+        df['Property Address'] = (
+            df['Street_Number'].astype(str).str.strip() + ' ' + 
+            df['Street_Name'].astype(str).str.strip()
+        )
+        # Add Street_Unit if present
+        if 'Street_Unit' in df.columns:
+            df['Property Address'] = df['Property Address'] + ' ' + df['Street_Unit'].astype(str).str.strip()
+        df['Property Address'] = df['Property Address'].str.strip()
+        address_col = 'Property Address'
+        column_mapping['Property Address'] = 'Property Address'
+    elif 'ADRNO' in df.columns and 'ADRSTR' in df.columns:
+        # Bethel format: ADRNO (address number), ADRSTR (street), ADRADD (additional)
+        print(f"  Constructing address from ADRNO, ADRSTR, ADRADD (Bethel format)...")
+        df['Property Address'] = (
+            df['ADRNO'].astype(str).str.strip() + ' ' + 
+            df['ADRSTR'].astype(str).str.strip()
+        )
+        # Add ADRADD if present and not empty
+        if 'ADRADD' in df.columns:
+            adr_add = df['ADRADD'].astype(str).str.strip()
+            df['Property Address'] = df['Property Address'] + ' ' + adr_add
+            df['Property Address'] = df['Property Address'].str.replace(r'\s+', ' ', regex=True).str.strip()
+        df['Property Address'] = df['Property Address'].str.strip()
+        address_col = 'Property Address'
+        column_mapping['Property Address'] = 'Property Address'
     else:
-        raise ValueError(f"Property Address column not found in raw CSV. Available columns: {list(df.columns)[:20]}")
+        # Try to find any column with 'address' in the name (case insensitive)
+        address_col = None
+        for col in df.columns:
+            if 'address' in str(col).lower():
+                address_col = col
+                df['Property Address'] = df[col]
+                column_mapping['Property Address'] = col
+                print(f"  Found address column: {col}")
+                break
+        
+        if not address_col:
+            raise ValueError(f"Property Address column not found in raw CSV. Available columns: {list(df.columns)[:20]}")
     
     # Parcel ID column mapping
     if 'Parcel ID' in df.columns:
@@ -357,7 +421,6 @@ def map_to_database_fields(combined_record: Dict) -> Dict:
     
     if 'Property City' in combined_record:
         city = str(combined_record['Property City']).strip() if pd.notna(combined_record['Property City']) else None
-        db_record['city'] = city
         db_record['municipality'] = city
     
     if 'Property Zip' in combined_record:

@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+LOG_DIR="$PROJECT_ROOT/logs"
+
+mkdir -p "$LOG_DIR"
 
 echo "🚀 Starting CT Maps Application Services..."
 echo ""
@@ -77,19 +80,25 @@ if [ ! -f ".deps_installed" ]; then
     touch .deps_installed
 fi
 
-# Start backend
+# Start backend (nohup so it keeps running after terminal close)
 echo "Starting uvicorn server..."
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload > "$PROJECT_ROOT/logs/backend.log" 2>&1 &
+nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload >> "$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 echo "Backend started with PID: $BACKEND_PID"
-echo $BACKEND_PID > "$PROJECT_ROOT/logs/backend.pid"
+echo $BACKEND_PID > "$LOG_DIR/backend.pid"
 
-# Wait for backend to be healthy
+# Wait for backend to be healthy (retry once after 2s if slow start)
 if wait_for_health "http://localhost:8000/health"; then
     echo "✅ Backend is ready!"
 else
-    echo "❌ Backend failed to start. Check logs: $PROJECT_ROOT/logs/backend.log"
-    exit 1
+    echo "Backend not ready yet, retrying in 2s..."
+    sleep 2
+    if wait_for_health "http://localhost:8000/health"; then
+        echo "✅ Backend is ready!"
+    else
+        echo "❌ Backend failed to start. Check logs: $LOG_DIR/backend.log"
+        exit 1
+    fi
 fi
 
 # Start Frontend
@@ -103,12 +112,12 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-# Start frontend
+# Start frontend (nohup so it keeps running after terminal close)
 echo "Starting Vite dev server..."
-npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
+nohup npm run dev >> "$LOG_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 echo "Frontend started with PID: $FRONTEND_PID"
-echo $FRONTEND_PID > "$PROJECT_ROOT/logs/frontend.pid"
+echo $FRONTEND_PID > "$LOG_DIR/frontend.pid"
 
 # Wait for frontend to be ready
 sleep 5
@@ -127,8 +136,8 @@ echo "   Frontend: http://localhost:3000"
 echo "   API Docs: http://localhost:8000/docs"
 echo ""
 echo "📋 Logs:"
-echo "   Backend:  $PROJECT_ROOT/logs/backend.log"
-echo "   Frontend: $PROJECT_ROOT/logs/frontend.log"
+echo "   Backend:  $LOG_DIR/backend.log"
+echo "   Frontend: $LOG_DIR/frontend.log"
 echo ""
 echo "🛑 To stop all services, run: ./scripts/stop_all.sh"
 echo ""

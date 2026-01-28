@@ -54,7 +54,7 @@ class DiagnosticsService {
 
     // Check backend reachability
     try {
-      const response = await fetch('/health', {
+      const response = await fetch('/health/ready', {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       })
@@ -96,17 +96,17 @@ class DiagnosticsService {
         severity: 'error',
         cause: 'The backend server is not running or not accessible on port 8000',
         fixSteps: [
-          '1. Check if backend is running:',
-          '   cd backend && source venv/bin/activate && uvicorn main:app --reload',
+          '1. Start (or restart) services from project root:',
+          '   ./scripts/start_all.sh',
           '',
           '2. Verify backend is on port 8000:',
           '   lsof -i :8000',
           '',
           '3. Check backend logs for errors:',
-          '   tail -f backend/logs/backend.log',
+          '   tail -f logs/backend.log',
           '',
-          '4. Restart backend if needed:',
-          '   ./scripts/stop_all.sh && ./scripts/start_all.sh',
+          '4. Or start backend only:',
+          '   cd backend && source venv/bin/activate && uvicorn main:app --reload',
         ],
         relatedServices: ['backend', 'uvicorn'],
         checkCommands: [
@@ -120,17 +120,17 @@ class DiagnosticsService {
         severity: 'error',
         cause: `Backend is running but not healthy. Database status: ${context.database || 'unknown'}`,
         fixSteps: [
-          '1. Check database connection:',
+          '1. Restart services from project root:',
+          '   ./scripts/start_all.sh',
+          '',
+          '2. Check database connection:',
           '   psql -l  # Verify PostgreSQL is running',
           '',
-          '2. Check backend logs:',
+          '3. Check backend logs:',
           '   tail -f logs/backend.log',
           '',
-          '3. Verify database URL in backend/.env:',
+          '4. Verify database URL in backend/.env:',
           '   cat backend/.env | grep DATABASE_URL',
-          '',
-          '4. Restart backend:',
-          '   cd backend && source venv/bin/activate && uvicorn main:app --reload',
         ],
         relatedServices: ['backend', 'database'],
         checkCommands: [
@@ -143,14 +143,14 @@ class DiagnosticsService {
         severity: 'error',
         cause: `Backend server returned HTTP ${context.status} status code`,
         fixSteps: [
-          '1. Check backend logs for detailed error:',
+          '1. Restart services from project root:',
+          '   ./scripts/start_all.sh',
+          '',
+          '2. Check backend logs for detailed error:',
           '   tail -f logs/backend.log',
           '',
-          '2. Check backend health endpoint:',
+          '3. Check backend health endpoint:',
           '   curl http://localhost:8000/health',
-          '',
-          '3. Restart backend:',
-          '   ./scripts/stop_all.sh && ./scripts/start_all.sh',
         ],
         relatedServices: ['backend'],
         checkCommands: [
@@ -163,24 +163,16 @@ class DiagnosticsService {
         cause: 'Backend cannot connect to PostgreSQL database',
         fixSteps: [
           '1. Verify PostgreSQL is running:',
-          '   # macOS (Postgres.app):',
-          '   # Make sure Postgres.app is running',
-          '   # Or via Homebrew:',
-          '   brew services list | grep postgresql',
+          '   brew services list | grep postgresql  # or Postgres.app',
           '',
           '2. Test database connection:',
           '   psql -l',
           '',
-          '3. Check database URL:',
-          '   cat backend/.env | grep DATABASE_URL',
-          '',
-          '4. Restart PostgreSQL if needed:',
-          '   # macOS (Postgres.app): Restart from app',
-          '   # Or via Homebrew:',
+          '3. Restart PostgreSQL if needed:',
           '   brew services restart postgresql',
           '',
-          '5. Restart backend after database is up:',
-          '   cd backend && source venv/bin/activate && uvicorn main:app --reload',
+          '4. Restart services from project root after database is up:',
+          '   ./scripts/start_all.sh',
         ],
         relatedServices: ['database', 'backend'],
         checkCommands: [
@@ -193,16 +185,14 @@ class DiagnosticsService {
         severity: 'error',
         cause: 'Cannot establish network connection to backend',
         fixSteps: [
-          '1. Verify backend is running:',
+          '1. Start (or restart) services from project root:',
+          '   ./scripts/start_all.sh',
+          '',
+          '2. Verify backend is running:',
           '   curl http://localhost:8000/health',
           '',
-          '2. Check if port 8000 is blocked:',
+          '3. Check if port 8000 is in use:',
           '   lsof -i :8000',
-          '',
-          '3. Check firewall settings',
-          '',
-          '4. Restart both services:',
-          '   ./scripts/stop_all.sh && ./scripts/start_all.sh',
         ],
         relatedServices: ['backend', 'network'],
         checkCommands: [
@@ -228,17 +218,16 @@ class DiagnosticsService {
     const recommendations: string[] = []
 
     if (!diagnostics.backend.reachable) {
-      recommendations.push('Start the backend server: cd backend && source venv/bin/activate && uvicorn main:app --reload')
-      recommendations.push('Or use the startup script: ./scripts/start_all.sh')
+      recommendations.push('Start services from project root: ./scripts/start_all.sh')
     }
 
     if (diagnostics.backend.reachable && !diagnostics.backend.healthy) {
       if (diagnostics.backend.database === 'disconnected') {
         recommendations.push('Check PostgreSQL is running: psql -l')
-        recommendations.push('Restart PostgreSQL if needed, then restart backend')
+        recommendations.push('Restart PostgreSQL if needed, then run: ./scripts/start_all.sh')
       } else {
+        recommendations.push('Restart services: ./scripts/start_all.sh')
         recommendations.push('Check backend logs: tail -f logs/backend.log')
-        recommendations.push('Restart backend: ./scripts/stop_all.sh && ./scripts/start_all.sh')
       }
     }
 

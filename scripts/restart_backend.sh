@@ -7,6 +7,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 LOG_DIR="$PROJECT_ROOT/logs"
 
+mkdir -p "$LOG_DIR"
+
 # Kill existing backend
 if [ -f "$LOG_DIR/backend.pid" ]; then
     BACKEND_PID=$(cat "$LOG_DIR/backend.pid")
@@ -25,15 +27,19 @@ lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 cd "$BACKEND_DIR"
 source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate
 
-nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload > "$LOG_DIR/backend.log" 2>&1 &
+nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload >> "$LOG_DIR/backend.log" 2>&1 &
 echo $! > "$LOG_DIR/backend.pid"
 
-# Wait a bit and verify
+# Wait a bit and verify (retry once after 2s if slow start)
 sleep 3
 if curl -s http://localhost:8000/health > /dev/null; then
     echo "Backend restarted successfully"
     exit 0
-else
-    echo "Backend restart may have failed - check logs"
-    exit 1
 fi
+sleep 2
+if curl -s http://localhost:8000/health > /dev/null; then
+    echo "Backend restarted successfully"
+    exit 0
+fi
+echo "Backend restart may have failed - check logs: $LOG_DIR/backend.log"
+exit 1

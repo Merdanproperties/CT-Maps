@@ -140,7 +140,7 @@ class AutoRemediationService {
     
     try {
       // Step 1: Check health endpoint for diagnostic info
-      const response = await fetch('/health', {
+      const response = await fetch('/health/ready', {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       })
@@ -238,7 +238,7 @@ class AutoRemediationService {
       // Step 2: Fallback - Trigger backend database reconnection via health check
       executedCommands.push('Triggering backend database reconnection')
       
-      const response = await fetch('/health', {
+      const response = await fetch('/health/ready', {
         method: 'GET',
         signal: AbortSignal.timeout(10000),
       })
@@ -334,7 +334,7 @@ class AutoRemediationService {
    */
   private async checkBackendHealth(): Promise<boolean> {
     try {
-      const response = await fetch('/health', {
+      const response = await fetch('/health/ready', {
         method: 'GET',
         signal: AbortSignal.timeout(3000),
       })

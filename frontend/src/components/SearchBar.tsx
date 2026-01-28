@@ -38,15 +38,29 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
     }
 
     setIsLoading(true)
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:40',message:'Fetching suggestions started',data:{searchQuery,queryLength:searchQuery.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     try {
       const response = await apiClient.get('/api/autocomplete/', {
         params: { q: searchQuery, limit: 10 }
       })
-      setSuggestions(response.data.suggestions || [])
-      setShowSuggestions(response.data.suggestions?.length > 0)
+      const suggestions = response.data.suggestions || []
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:47',message:'Suggestions received',data:{searchQuery,suggestionCount:suggestions.length,suggestions:suggestions.map((s: AutocompleteSuggestion)=>({type:s.type,value:s.value,display:s.display})),willShow: suggestions.length > 0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      setSuggestions(suggestions)
+      const willShow = suggestions.length > 0
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:50',message:'Setting showSuggestions state',data:{searchQuery,willShow,suggestionCount:suggestions.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+      setShowSuggestions(willShow)
       setSelectedIndex(-1)
     } catch (error) {
       console.error('Autocomplete error:', error)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:52',message:'Autocomplete error',data:{searchQuery,error:error instanceof Error ? error.message : String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       setSuggestions([])
       setShowSuggestions(false)
     } finally {
@@ -71,7 +85,15 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
   // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      const isInside = searchRef.current?.contains(target)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:74',message:'Click outside handler fired',data:{isInside,hasSearchRef:!!searchRef.current,targetTag:target.nodeName,targetClass:(target as Element)?.className,showSuggestions},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      if (searchRef.current && !isInside) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:78',message:'Closing suggestions (click outside)',data:{targetTag:target.nodeName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         setShowSuggestions(false)
       }
     }
@@ -82,6 +104,9 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
 
   const handleSelect = (suggestion: AutocompleteSuggestion) => {
     console.log('🔘 Selection made:', suggestion)
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:86',message:'handleSelect called',data:{suggestionType:suggestion.type,suggestionValue:suggestion.value,suggestionDisplay:suggestion.display,currentShowSuggestions:showSuggestions},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     setQuery(suggestion.display)
     setShowSuggestions(false)
     
@@ -245,7 +270,22 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
       </div>
 
       {showSuggestions && (
-        <div className="search-bar-suggestions">
+        <div 
+          className="search-bar-suggestions"
+          onMouseEnter={() => {
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:250',message:'Dropdown mouse enter',data:{suggestionCount:suggestions.length,isLoading},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+          }}
+          ref={(el) => {
+            if (el) {
+              const rect = el.getBoundingClientRect()
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:256',message:'Dropdown rendered/positioned',data:{top:rect.top,left:rect.left,width:rect.width,height:rect.height,isVisible:rect.width > 0 && rect.height > 0,zIndex:window.getComputedStyle(el).zIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
+            }
+          }}
+        >
           {isLoading ? (
             <div className="search-bar-loading">Loading...</div>
           ) : suggestions.length === 0 ? (
@@ -259,7 +299,17 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
                   index === selectedIndex ? 'selected' : ''
                 }`}
                 data-type={suggestion.type}
-                onClick={() => handleSelect(suggestion)}
+                onMouseDown={(e) => {
+                  // #region agent log
+                  fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:262',message:'Suggestion button mousedown',data:{index,suggestionType:suggestion.type,suggestionValue:suggestion.value,showSuggestions},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                  // #endregion
+                }}
+                onClick={(e) => {
+                  // #region agent log
+                  fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:268',message:'Suggestion button click',data:{index,suggestionType:suggestion.type,suggestionValue:suggestion.value,showSuggestions},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                  // #endregion
+                  handleSelect(suggestion)
+                }}
               >
                 <div className="search-bar-suggestion-icon">
                   {suggestion.type === 'town' ? (

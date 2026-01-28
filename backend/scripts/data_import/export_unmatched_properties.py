@@ -117,7 +117,6 @@ def export_unmatched_properties_to_excel(municipality: str, db: Session, output_
                 'Property ID': prop.id,
                 'Parcel ID': prop.parcel_id or '',
                 'Address': prop.address or '',
-                'City': prop.city or '',
                 'Municipality': prop.municipality or '',
                 'Zip Code': prop.zip_code or '',
                 'Owner Name': prop.owner_name or '',

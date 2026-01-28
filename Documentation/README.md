@@ -2,6 +2,10 @@
 
 This directory contains all project documentation organized by category.
 
+## Running the app
+
+See **[QUICKSTART.md](../QUICKSTART.md)** at the project root for how to start and stop the app, and what to do if the site does not load.
+
 ## Directory Structure
 
 ### `guides/`

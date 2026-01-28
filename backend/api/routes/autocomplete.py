@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, distinct, or_
+from sqlalchemy import func, distinct, or_, text
+from sqlalchemy.exc import OperationalError
 from typing import List, Optional
 import json
 from datetime import datetime
@@ -8,6 +9,7 @@ from pathlib import Path
 from database import get_db
 from models import Property
 from pydantic import BaseModel
+from services.options_cache import options_cache
 
 router = APIRouter()
 
@@ -232,13 +234,36 @@ async def autocomplete(
 async def get_towns(
     db: Session = Depends(get_db)
 ):
-    """Get list of all unique towns/municipalities"""
-    towns = db.query(distinct(Property.municipality)).filter(
-        Property.municipality.isnot(None),
-        Property.municipality != ''
-    ).order_by(Property.municipality).all()
-    
-    return [town[0] for town in towns if town[0]]
+    """Get list of all unique towns/municipalities. Cached 10 min; 10s timeout; returns [] on timeout."""
+    cached = options_cache.get("towns")
+    if cached is not None:
+        return cached
+    try:
+        db.execute(text("SET statement_timeout = '10s'"))
+        try:
+            query = db.query(Property).filter(
+                Property.municipality.isnot(None),
+                Property.municipality != ''
+            ).with_entities(Property.municipality).distinct().order_by(Property.municipality)
+            rows = query.all()
+            result = [r[0] for r in rows if r[0]]
+            options_cache.set("towns", result)
+            return result
+        except OperationalError as oe:
+            err = str(oe).lower()
+            if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+                return []
+            raise
+        finally:
+            try:
+                db.execute(text("SET statement_timeout = '0'"))
+            except Exception:
+                pass
+    except OperationalError as oe:
+        err = str(oe).lower()
+        if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+            return []
+        raise
 
 @router.get("/owner-cities", response_model=List[str])
 async def get_owner_cities(
@@ -296,14 +321,52 @@ async def get_owner_cities(
         owner_state=owner_state
     )
     
-    # Get unique owner cities
-    properties = query.all()
-    cities = set()
-    for prop in properties:
-        if prop.owner_city:
-            cities.add(prop.owner_city)
-    
-    return sorted(list(cities))
+    cached = options_cache.get(
+        "owner-cities",
+        municipality=municipality,
+        unit_type=unit_type,
+        zoning=zoning,
+        property_age=property_age,
+        time_since_sale=time_since_sale,
+        annual_tax=annual_tax,
+        owner_state=owner_state,
+    )
+    if cached is not None:
+        return cached
+    # 10s statement timeout; return [] on timeout
+    try:
+        db.execute(text("SET statement_timeout = '10s'"))
+        try:
+            query = query.with_entities(Property.owner_city).distinct()
+            rows = query.all()
+            result = sorted([r[0] for r in rows if r[0]])
+            options_cache.set(
+                "owner-cities",
+                result,
+                municipality=municipality,
+                unit_type=unit_type,
+                zoning=zoning,
+                property_age=property_age,
+                time_since_sale=time_since_sale,
+                annual_tax=annual_tax,
+                owner_state=owner_state,
+            )
+            return result
+        except OperationalError as oe:
+            err = str(oe).lower()
+            if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+                return []
+            raise
+        finally:
+            try:
+                db.execute(text("SET statement_timeout = '0'"))
+            except Exception:
+                pass
+    except OperationalError as oe:
+        err = str(oe).lower()
+        if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+            return []
+        raise
 
 @router.get("/owner-states", response_model=List[str])
 async def get_owner_states(
@@ -361,14 +424,52 @@ async def get_owner_states(
         owner_city=owner_city
     )
     
-    # Get unique owner states
-    properties = query.all()
-    states = set()
-    for prop in properties:
-        if prop.owner_state:
-            states.add(prop.owner_state)
-    
-    return sorted(list(states))
+    cached = options_cache.get(
+        "owner-states",
+        municipality=municipality,
+        unit_type=unit_type,
+        zoning=zoning,
+        property_age=property_age,
+        time_since_sale=time_since_sale,
+        annual_tax=annual_tax,
+        owner_city=owner_city,
+    )
+    if cached is not None:
+        return cached
+    # 10s statement timeout; return [] on timeout
+    try:
+        db.execute(text("SET statement_timeout = '10s'"))
+        try:
+            query = query.with_entities(Property.owner_state).distinct()
+            rows = query.all()
+            result = sorted([r[0] for r in rows if r[0]])
+            options_cache.set(
+                "owner-states",
+                result,
+                municipality=municipality,
+                unit_type=unit_type,
+                zoning=zoning,
+                property_age=property_age,
+                time_since_sale=time_since_sale,
+                annual_tax=annual_tax,
+                owner_city=owner_city,
+            )
+            return result
+        except OperationalError as oe:
+            err = str(oe).lower()
+            if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+                return []
+            raise
+        finally:
+            try:
+                db.execute(text("SET statement_timeout = '0'"))
+            except Exception:
+                pass
+    except OperationalError as oe:
+        err = str(oe).lower()
+        if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+            return []
+        raise
 
 @router.get("/owner-addresses", response_model=List[str])
 async def get_owner_addresses(
@@ -433,13 +534,8 @@ async def get_owner_addresses(
         owner_state=owner_state
     )
     
-    # Get unique owner addresses from filtered results
-    properties = query.all()
-    addresses = set()
-    for prop in properties:
-        if prop.owner_address:
-            addresses.add(prop.owner_address)
-    
-    # Sort and limit
-    sorted_addresses = sorted(list(addresses))
-    return sorted_addresses[:limit]
+    # SELECT DISTINCT owner_address only (no full row load), then sort and limit
+    query = query.with_entities(Property.owner_address).distinct()
+    rows = query.all()
+    addresses = sorted([r[0] for r in rows if r[0]])
+    return addresses[:limit]

@@ -1,15 +1,20 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, extract, select, text
+from sqlalchemy.exc import OperationalError
 from typing import Optional, List
 from database import get_db
 from models import Property
 from api.routes.properties import PropertyResponse
 from pydantic import BaseModel
 from datetime import date, datetime, timedelta
+from services.options_cache import options_cache
 import json
 
 router = APIRouter()
+
+MAX_PAGE_SIZE = 200
+MAX_BBOX_AREA_KM2 = 5000  # ~half of CT; reject larger to avoid massive spatial scans
 
 def get_family_count(property_type: str) -> Optional[int]:
     """Detect family count from property_type string"""
@@ -61,10 +66,11 @@ async def search_properties(
     owner_city: Optional[str] = Query(None, description="Filter by owner mailing city. For multiple values, pass comma-separated string."),
     owner_state: Optional[str] = Query(None, description="Filter by owner mailing state. For multiple values, pass comma-separated string."),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=2000),  # Balanced limit: 2k properties ~1.6MB
+    page_size: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db)
 ):
     """Search properties with various filters"""
+    page_size = min(page_size, MAX_PAGE_SIZE)
     try:
         query = db.query(Property)
         
@@ -97,8 +103,7 @@ async def search_properties(
                     Property.owner_address.ilike(search_term),
                     owner_full_address.ilike(search_term),  # Match full owner address string
                     Property.parcel_id.ilike(search_term),
-                    Property.city.ilike(search_term),
-                    Property.municipality.ilike(search_term)  # Also search municipality
+                    Property.municipality.ilike(search_term)
                 )
             )
         
@@ -407,6 +412,19 @@ async def search_properties(
                 coords = [float(x) for x in bbox.split(",")]
                 if len(coords) == 4:
                     min_lng, min_lat, max_lng, max_lat = coords
+                    # Reject huge bboxes to avoid massive spatial scans and timeouts
+                    lat_deg = max_lat - min_lat
+                    lng_deg = max_lng - min_lng
+                    if lat_deg > 0 and lng_deg > 0:
+                        # Approximate area in km² at mid-lat (CT ~41°)
+                        km_per_deg_lat = 111.0
+                        km_per_deg_lng = 85.0
+                        area_km2 = lat_deg * km_per_deg_lat * lng_deg * km_per_deg_lng
+                        if area_km2 > MAX_BBOX_AREA_KM2:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Bounding box too large ({area_km2:.0f} km²). Maximum allowed is {MAX_BBOX_AREA_KM2} km². Zoom in or use a smaller area."
+                            )
                     bbox_geom = func.ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326)
                     query = query.filter(
                         func.ST_Intersects(Property.geometry, bbox_geom)
@@ -455,7 +473,6 @@ async def search_properties(
                     id=prop.id,
                     parcel_id=prop.parcel_id,
                     address=prop.address,
-                    city=prop.city,
                     municipality=prop.municipality,
                     zip_code=prop.zip_code,
                     owner_name=prop.owner_name,
@@ -491,15 +508,15 @@ async def search_properties(
             page=page,
             page_size=page_size
         )
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         error_msg = f"Error in search_properties: {str(e)}"
         print(error_msg)
         traceback.print_exc()
-        from fastapi import HTTPException
-        # Include more context in error message for debugging
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Search failed: {str(e)}. Check backend logs for full traceback."
         )
 
@@ -674,7 +691,19 @@ async def get_zoning_options(
     owner_state: Optional[str] = Query(None, description="Filter by owner mailing state"),
     db: Session = Depends(get_db)
 ):
-    """Get unique zoning codes, optionally filtered by other selections"""
+    """Get unique zoning codes, optionally filtered by other selections. Cached 10 min."""
+    cached = options_cache.get(
+        "zoning/options",
+        municipality=municipality,
+        unit_type=unit_type,
+        property_age=property_age,
+        time_since_sale=time_since_sale,
+        annual_tax=annual_tax,
+        owner_city=owner_city,
+        owner_state=owner_state,
+    )
+    if cached is not None:
+        return cached
     try:
         # Build query on full Property table to allow filtering
         query = db.query(Property).filter(Property.zoning.isnot(None))
@@ -715,30 +744,43 @@ async def get_zoning_options(
             owner_state=owner_state
         )
         
-        # Execute query with error handling
+        # 10s statement timeout so we never hang; return empty on timeout
         try:
-            properties = query.all()
-        except Exception as query_error:
-            import traceback
-            error_details = f"Database query error in get_zoning_options: {str(query_error)}"
-            print(error_details)
-            traceback.print_exc()
-            from fastapi import HTTPException
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to query zoning options: {str(query_error)}"
-            )
-        
-        # Extract unique zoning codes from properties
-        zoning_codes = set()
-        for prop in properties:
-            if prop.zoning:
-                zoning_codes.add(prop.zoning)
-        
-        # Sort and return
-        zoning_codes = sorted(list(zoning_codes))
-        
-        return ZoningOptionsResponse(zoning_codes=zoning_codes)
+            db.execute(text("SET statement_timeout = '10s'"))
+            try:
+                query = query.with_entities(Property.zoning).distinct()
+                rows = query.all()
+                zoning_codes = sorted([r[0] for r in rows if r[0]])
+                resp = ZoningOptionsResponse(zoning_codes=zoning_codes)
+                options_cache.set(
+                    "zoning/options",
+                    resp,
+                    municipality=municipality,
+                    unit_type=unit_type,
+                    property_age=property_age,
+                    time_since_sale=time_since_sale,
+                    annual_tax=annual_tax,
+                    owner_city=owner_city,
+                    owner_state=owner_state,
+                )
+                return resp
+            except OperationalError as oe:
+                err = str(oe).lower()
+                if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+                    return ZoningOptionsResponse(zoning_codes=[])
+                raise
+            finally:
+                try:
+                    db.execute(text("SET statement_timeout = '0'"))
+                except Exception:
+                    pass
+        except HTTPException:
+            raise
+        except OperationalError as oe:
+            err = str(oe).lower()
+            if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+                return ZoningOptionsResponse(zoning_codes=[])
+            raise HTTPException(status_code=500, detail=f"Database error: {oe}")
     except HTTPException:
         raise
     except Exception as e:
@@ -763,7 +805,19 @@ async def get_unit_type_options(
     owner_state: Optional[str] = Query(None, description="Filter by owner mailing state"),
     db: Session = Depends(get_db)
 ):
-    """Get unique unit type combinations (property_type + land_use), optionally filtered by other selections"""
+    """Get unique unit type combinations (property_type + land_use), optionally filtered by other selections. Cached 10 min."""
+    cached = options_cache.get(
+        "unit-types/options",
+        municipality=municipality,
+        zoning=zoning,
+        property_age=property_age,
+        time_since_sale=time_since_sale,
+        annual_tax=annual_tax,
+        owner_city=owner_city,
+        owner_state=owner_state,
+    )
+    if cached is not None:
+        return cached
     try:
         # Build query on full Property table to allow filtering
         query = db.query(Property).filter(Property.property_type.isnot(None))
@@ -804,37 +858,47 @@ async def get_unit_type_options(
             owner_state=owner_state
         )
         
-        # Get unique combinations with error handling
+        # 10s statement timeout so we never hang; return empty on timeout
         try:
-            properties = query.all()
-        except Exception as query_error:
-            import traceback
-            error_details = f"Database query error in get_unit_type_options: {str(query_error)}"
-            print(error_details)
-            traceback.print_exc()
-            from fastapi import HTTPException
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to query unit type options: {str(query_error)}"
-            )
-        
-        # Build unique combinations from properties
-        unit_type_map = {}
-        for prop in properties:
-            if prop.property_type:
-                key = (prop.property_type, prop.land_use)
-                if key not in unit_type_map:
-                    unit_type_map[key] = UnitTypeOption(
-                        property_type=prop.property_type,
-                        land_use=prop.land_use
-                    )
-        
-        unit_types = list(unit_type_map.values())
-        
-        # Sort by property_type, then by land_use
-        unit_types.sort(key=lambda x: (x.property_type or "", x.land_use or ""))
-        
-        return UnitTypeOptionsResponse(unit_types=unit_types)
+            db.execute(text("SET statement_timeout = '10s'"))
+            try:
+                query = query.with_entities(Property.property_type, Property.land_use).distinct()
+                rows = query.all()
+                unit_types = [
+                    UnitTypeOption(property_type=pt or "", land_use=lu)
+                    for pt, lu in rows if pt
+                ]
+                unit_types.sort(key=lambda x: (x.property_type or "", x.land_use or ""))
+                resp = UnitTypeOptionsResponse(unit_types=unit_types)
+                options_cache.set(
+                    "unit-types/options",
+                    resp,
+                    municipality=municipality,
+                    zoning=zoning,
+                    property_age=property_age,
+                    time_since_sale=time_since_sale,
+                    annual_tax=annual_tax,
+                    owner_city=owner_city,
+                    owner_state=owner_state,
+                )
+                return resp
+            except OperationalError as oe:
+                err = str(oe).lower()
+                if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+                    return UnitTypeOptionsResponse(unit_types=[])
+                raise
+            finally:
+                try:
+                    db.execute(text("SET statement_timeout = '0'"))
+                except Exception:
+                    pass
+        except HTTPException:
+            raise
+        except OperationalError as oe:
+            err = str(oe).lower()
+            if "canceling" in err or "timeout" in err or "statement_timeout" in err:
+                return UnitTypeOptionsResponse(unit_types=[])
+            raise HTTPException(status_code=500, detail=f"Database error: {oe}")
     except HTTPException:
         # Re-raise HTTP exceptions (already properly formatted)
         raise

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Text, Index, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, Text, Index, DateTime, ForeignKey, UniqueConstraint, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
 from geoalchemy2 import Geometry
@@ -8,10 +8,11 @@ class Property(Base):
     __tablename__ = "properties"
     
     id = Column(Integer, primary_key=True, index=True)
-    parcel_id = Column(String, unique=True, index=True, nullable=False)
+    # parcel_id is only unique per municipality, not globally
+    # Use composite unique constraint (parcel_id + municipality) instead of global unique
+    parcel_id = Column(String, index=True, nullable=False)
     address = Column(String, index=True)
-    city = Column(String, index=True)
-    municipality = Column(String, index=True)
+    municipality = Column(String, index=True, nullable=False)  # Now required for composite constraint
     zip_code = Column(String)
     
     # Owner information
@@ -83,13 +84,19 @@ class Property(Base):
     data_source = Column(String)
     last_updated = Column(Date)
     
-    # Indexes for common queries
+    # Indexes and constraints for common queries
     __table_args__ = (
+        # Composite unique constraint: parcel_id is unique per municipality, not globally
+        UniqueConstraint('parcel_id', 'municipality', name='uq_properties_parcel_id_municipality'),
         Index('idx_property_geometry', 'geometry', postgresql_using='gist'),
         Index('idx_property_municipality', 'municipality'),
         Index('idx_property_assessed_value', 'assessed_value'),
         Index('idx_property_last_sale_date', 'last_sale_date'),
         Index('idx_property_zoning', 'zoning'),
+        Index('idx_property_owner_city', 'owner_city'),
+        Index('idx_property_owner_state', 'owner_state'),
+        Index('idx_property_property_type', 'property_type'),
+        Index('idx_property_land_use', 'land_use'),
     )
 
 class Sale(Base):

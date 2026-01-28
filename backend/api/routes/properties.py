@@ -15,7 +15,6 @@ class PropertyResponse(BaseModel):
     id: int
     parcel_id: str
     address: Optional[str]
-    city: Optional[str]
     municipality: Optional[str]
     zip_code: Optional[str]
     owner_name: Optional[str]
@@ -163,7 +162,6 @@ async def get_property(property_id: int, db: Session = Depends(get_db)):
             id=property.id,
             parcel_id=property.parcel_id,
             address=property.address,
-            city=property.city,
             municipality=property.municipality,
             zip_code=property.zip_code,
             owner_name=property.owner_name,
@@ -267,7 +265,6 @@ async def list_properties(
                 id=prop.id,
                 parcel_id=prop.parcel_id,
                 address=prop.address,
-                city=prop.city,
                 municipality=prop.municipality,
                 zip_code=prop.zip_code,
                 owner_name=prop.owner_name,

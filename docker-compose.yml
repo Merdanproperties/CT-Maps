@@ -1,0 +1,63 @@
+# CT Maps full stack - single command: docker compose up
+# Browser -> frontend:3000 (proxy) -> backend:8000 -> postgres:5432
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.4
+    environment:
+      POSTGRES_USER: ctmaps
+      POSTGRES_PASSWORD: ctmaps
+      POSTGRES_DB: ct_properties
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ctmaps -d ct_properties"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg2://ctmaps:ctmaps@postgres:5432/ct_properties
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      VITE_PROXY_TARGET: http://backend:8000
+      VITE_MAPBOX_ACCESS_TOKEN: ${VITE_MAPBOX_ACCESS_TOKEN:-}
+      VITE_MAP_PROVIDER: ${VITE_MAP_PROVIDER:-auto}
+      VITE_MAPBOX_STYLE: ${VITE_MAPBOX_STYLE:-mapbox://styles/mapbox/streets-v12}
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

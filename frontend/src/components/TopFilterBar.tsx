@@ -1,28 +1,62 @@
-import { useState, useEffect, useRef } from 'react'
-import { Search, ChevronDown, Save, X } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Search, ChevronDown, Save, X, XCircle } from 'lucide-react'
 import SearchBar from './SearchBar'
 import { propertyApi } from '../api/client'
 import './TopFilterBar.css'
 
+const OPTIONS_STALE_MS = 5 * 60 * 1000 // Cache options for 5 min per filter combo
+
 interface TopFilterBarProps {
   onFilterChange?: (filter: string, value: any) => void
   onSearchChange?: (query: string) => void
+  onClearAllFilters?: () => void
   municipality?: string | null
   filterParams?: Record<string, any>
 }
 
-export default function TopFilterBar({ onFilterChange, onSearchChange, municipality, filterParams }: TopFilterBarProps) {
+export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAllFilters, municipality, filterParams }: TopFilterBarProps) {
   const [selectedFilters, setSelectedFilters] = useState<Record<string, any>>({})
-  const [towns, setTowns] = useState<string[]>([])
-  const [unitTypeOptions, setUnitTypeOptions] = useState<Array<{property_type: string, land_use: string | null}>>([])
-  const [zoningOptions, setZoningOptions] = useState<string[]>([])
-  const [ownerCities, setOwnerCities] = useState<string[]>([])
-  const [ownerStates, setOwnerStates] = useState<string[]>([])
-  const [loadingTowns, setLoadingTowns] = useState(false)
-  const [loadingUnitTypes, setLoadingUnitTypes] = useState(false)
-  const [loadingZoning, setLoadingZoning] = useState(false)
-  const [loadingOwnerCities, setLoadingOwnerCities] = useState(false)
-  const [loadingOwnerStates, setLoadingOwnerStates] = useState(false)
+  const getFirstValue = (value: any): string | undefined => {
+    if (!value) return undefined
+    return Array.isArray(value) ? value[0] : value
+  }
+  const filtersForOptions = useMemo(() => ({
+    municipality: municipality || undefined,
+    unitType: getFirstValue(selectedFilters.unitType),
+    zoning: getFirstValue(selectedFilters.zoning),
+    propertyAge: getFirstValue(selectedFilters.propertyAge),
+    timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
+    annualTax: getFirstValue(selectedFilters.annualTax),
+    ownerCity: getFirstValue(selectedFilters.ownerCity),
+    ownerState: getFirstValue(selectedFilters.ownerState),
+  }), [municipality, selectedFilters.unitType, selectedFilters.zoning, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerCity, selectedFilters.ownerState])
+
+  const { data: towns = [], isLoading: loadingTowns } = useQuery({
+    queryKey: ['towns'],
+    queryFn: () => propertyApi.getTowns(),
+    staleTime: OPTIONS_STALE_MS,
+  })
+  const { data: unitTypeOptions = [], isLoading: loadingUnitTypes } = useQuery({
+    queryKey: ['unitTypes', filtersForOptions],
+    queryFn: () => propertyApi.getUnitTypeOptions(filtersForOptions).then(r => r.unit_types),
+    staleTime: OPTIONS_STALE_MS,
+  })
+  const { data: zoningOptions = [], isLoading: loadingZoning } = useQuery({
+    queryKey: ['zoning', filtersForOptions],
+    queryFn: () => propertyApi.getZoningOptions(filtersForOptions).then(r => r.zoning_codes),
+    staleTime: OPTIONS_STALE_MS,
+  })
+  const { data: ownerCities = [], isLoading: loadingOwnerCities } = useQuery({
+    queryKey: ['ownerCities', filtersForOptions],
+    queryFn: () => propertyApi.getOwnerCities(filtersForOptions),
+    staleTime: OPTIONS_STALE_MS,
+  })
+  const { data: ownerStates = [], isLoading: loadingOwnerStates } = useQuery({
+    queryKey: ['ownerStates', filtersForOptions],
+    queryFn: () => propertyApi.getOwnerStates(filtersForOptions),
+    staleTime: OPTIONS_STALE_MS,
+  })
 
   // Sync selectedFilters with municipality prop
   useEffect(() => {
@@ -101,127 +135,6 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, municipal
     }
   }, [filterParams])
 
-  // Fetch towns on mount
-  useEffect(() => {
-    const fetchTowns = async () => {
-      setLoadingTowns(true)
-      try {
-        const townsList = await propertyApi.getTowns()
-        setTowns(townsList)
-      } catch (error) {
-        console.error('Error fetching towns:', error)
-      } finally {
-        setLoadingTowns(false)
-      }
-    }
-    fetchTowns()
-  }, [])
-
-  // Helper to get first value from array or single value
-  const getFirstValue = (value: any): string | undefined => {
-    if (!value) return undefined
-    return Array.isArray(value) ? value[0] : value
-  }
-
-  // Fetch unit type options when any filter changes
-  useEffect(() => {
-    const fetchUnitTypes = async () => {
-      setLoadingUnitTypes(true)
-      try {
-        const filters = {
-          municipality: municipality || undefined,
-          zoning: getFirstValue(selectedFilters.zoning),
-          propertyAge: getFirstValue(selectedFilters.propertyAge),
-          timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
-          annualTax: getFirstValue(selectedFilters.annualTax),
-          ownerCity: getFirstValue(selectedFilters.ownerCity),
-          ownerState: getFirstValue(selectedFilters.ownerState)
-        }
-        const result = await propertyApi.getUnitTypeOptions(filters)
-        setUnitTypeOptions(result.unit_types)
-      } catch (error) {
-        console.error('Error fetching unit types:', error)
-      } finally {
-        setLoadingUnitTypes(false)
-      }
-    }
-    fetchUnitTypes()
-  }, [municipality, selectedFilters.zoning, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerCity, selectedFilters.ownerState])
-
-  // Fetch zoning options when any filter changes
-  useEffect(() => {
-    const fetchZoning = async () => {
-      setLoadingZoning(true)
-      try {
-        const filters = {
-          municipality: municipality || undefined,
-          unitType: getFirstValue(selectedFilters.unitType),
-          propertyAge: getFirstValue(selectedFilters.propertyAge),
-          timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
-          annualTax: getFirstValue(selectedFilters.annualTax),
-          ownerCity: getFirstValue(selectedFilters.ownerCity),
-          ownerState: getFirstValue(selectedFilters.ownerState)
-        }
-        const result = await propertyApi.getZoningOptions(filters)
-        setZoningOptions(result.zoning_codes)
-      } catch (error) {
-        console.error('Error fetching zoning options:', error)
-      } finally {
-        setLoadingZoning(false)
-      }
-    }
-    fetchZoning()
-  }, [municipality, selectedFilters.unitType, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerCity, selectedFilters.ownerState])
-
-  // Fetch owner cities when any filter changes
-  useEffect(() => {
-    const fetchOwnerCities = async () => {
-      setLoadingOwnerCities(true)
-      try {
-        const filters = {
-          municipality: municipality || undefined,
-          unitType: getFirstValue(selectedFilters.unitType),
-          zoning: getFirstValue(selectedFilters.zoning),
-          propertyAge: getFirstValue(selectedFilters.propertyAge),
-          timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
-          annualTax: getFirstValue(selectedFilters.annualTax),
-          ownerState: getFirstValue(selectedFilters.ownerState)
-        }
-        const citiesList = await propertyApi.getOwnerCities(filters)
-        setOwnerCities(citiesList)
-      } catch (error) {
-        console.error('Error fetching owner cities:', error)
-      } finally {
-        setLoadingOwnerCities(false)
-      }
-    }
-    fetchOwnerCities()
-  }, [municipality, selectedFilters.unitType, selectedFilters.zoning, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerState])
-
-  // Fetch owner states when any filter changes
-  useEffect(() => {
-    const fetchOwnerStates = async () => {
-      setLoadingOwnerStates(true)
-      try {
-        const filters = {
-          municipality: municipality || undefined,
-          unitType: getFirstValue(selectedFilters.unitType),
-          zoning: getFirstValue(selectedFilters.zoning),
-          propertyAge: getFirstValue(selectedFilters.propertyAge),
-          timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
-          annualTax: getFirstValue(selectedFilters.annualTax),
-          ownerCity: getFirstValue(selectedFilters.ownerCity)
-        }
-        const statesList = await propertyApi.getOwnerStates(filters)
-        setOwnerStates(statesList)
-      } catch (error) {
-        console.error('Error fetching owner states:', error)
-      } finally {
-        setLoadingOwnerStates(false)
-      }
-    }
-    fetchOwnerStates()
-  }, [municipality, selectedFilters.unitType, selectedFilters.zoning, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerCity])
 
   const handleFilterSelect = (filterName: string, value: any, updateState: boolean = true) => {
     // Special handling for text inputs (like ownerAddress)
@@ -306,6 +219,15 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, municipal
       return `${unitType.property_type} - ${unitType.land_use}`
     }
     return unitType.property_type
+  }
+
+  // Check if there are any active filters
+  const hasActiveFilters = () => {
+    if (!filterParams && !municipality) return false
+    const hasParams = filterParams && Object.keys(filterParams).length > 0
+    const hasSelectedFilters = Object.keys(selectedFilters).length > 0
+    const hasMunicipality = municipality !== null && municipality !== undefined && municipality !== ''
+    return hasParams || hasSelectedFilters || hasMunicipality
   }
 
   return (
@@ -479,6 +401,19 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, municipal
             multiSelect={true}
           />
         </div>
+
+        {/* Clear All Filters Button */}
+        {hasActiveFilters() && onClearAllFilters && (
+          <button 
+            className="clear-all-filters-btn-nav"
+            onClick={onClearAllFilters}
+            aria-label="Clear all filters"
+            title="Clear all filters"
+          >
+            <XCircle size={16} />
+            <span>Clear All</span>
+          </button>
+        )}
 
         {/* Save Search Button */}
         <button className="save-search-btn">

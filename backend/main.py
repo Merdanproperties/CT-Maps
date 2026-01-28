@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 
+from sqlalchemy.exc import OperationalError, DBAPIError
+
 from api.routes import properties, search, filters, export, analytics, autocomplete, remediation
 from database import engine, Base
 
@@ -44,8 +46,20 @@ def check_database_health():
         _db_health_cache["timestamp"] = current_time
         return False
 
+def setup_database_tables():
+    """Create PostGIS extension and tables if they do not exist (e.g. fresh Docker DB)."""
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
+            conn.commit()
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables ready (PostGIS + schema).")
+    except Exception as e:
+        logger.warning("Database setup skipped or failed (tables may already exist): %s", e)
+
 def recover_database():
-    """Attempt to recover database connection (synchronous)"""
+    """Attempt to recover database connection and ensure tables exist (synchronous)"""
     try:
         from sqlalchemy import text
         # Dispose and recreate connection pool
@@ -58,6 +72,8 @@ def recover_database():
             conn.execute(text("SELECT 1"))
         health_status["database"] = True
         logger.info("Database connection recovered")
+        # Ensure schema exists (e.g. backend started before Postgres was ready)
+        setup_database_tables()
         return True
     except Exception as e:
         logger.error(f"Database recovery failed: {e}")
@@ -81,23 +97,22 @@ async def health_monitor_task():
                 logger.warning("Database unhealthy, attempting recovery...")
                 await loop.run_in_executor(executor, recover_database)
             
-            await asyncio.sleep(30)  # Check every 30 seconds
+            await asyncio.sleep(60)  # Check every 60s to reduce CPU
         except Exception as e:
             logger.error(f"Error in health monitor: {e}")
-            await asyncio.sleep(30)
+            await asyncio.sleep(60)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown"""
-    # Startup
     logger.info("Starting CT Property Search API...")
-    
-    # Initial health check (run in thread pool)
+    # Initial health check and DB setup (run in thread pool)
     import concurrent.futures
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(executor, check_database_health)
-    
+    await loop.run_in_executor(executor, setup_database_tables)
+
     # Start health monitoring task
     monitor_task = asyncio.create_task(health_monitor_task())
     
@@ -142,60 +157,96 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"]
 app.include_router(autocomplete.router, prefix="/api/autocomplete", tags=["autocomplete"])
 app.include_router(remediation.router, prefix="/api/remediation", tags=["remediation"])
 
+
+@app.exception_handler(OperationalError)
+@app.exception_handler(DBAPIError)
+async def database_exception_handler(request, exc):
+    """Return 503 with clear message when database is unreachable or errors."""
+    logger.error(f"Database error on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Database is unavailable. Check that PostgreSQL is running and DATABASE_URL is correct.",
+            "error_type": type(exc).__name__,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def catch_all_exception_handler(request, exc):
+    """Convert 500 and any unhandled exception to 503 so frontend sees 'unavailable' not 500."""
+    if isinstance(exc, HTTPException):
+        if exc.status_code >= 500:
+            logger.error(f"Server error on {request.url.path}: {exc.detail}")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Service temporarily unavailable. Check that PostgreSQL and the backend are running."},
+            )
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    logger.exception(f"Unhandled exception on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Service temporarily unavailable. Check that PostgreSQL and the backend are running.",
+            "error_type": type(exc).__name__,
+        },
+    )
+
+
 @app.get("/")
 async def root():
     return {"message": "CT Property Search API", "version": "1.0.0"}
 
 @app.get("/health")
 async def health():
-    """Optimized health check endpoint - lightweight and fast"""
+    """Shallow liveness check - returns 200 immediately, no DB. Use for Docker and fast 'is backend up?'."""
+    return {"status": "ok", "api": "operational"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """Readiness check including DB - use for UI banner (database connected/disconnected)."""
     import concurrent.futures
-    
-    # Use cached executor to avoid creating new one each time
-    # Check database health with timeout to prevent hanging
+
+    db_healthy = False
     try:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         loop = asyncio.get_event_loop()
-        
-        # Run health check with timeout (max 2 seconds)
-        db_healthy = await asyncio.wait_for(
-            loop.run_in_executor(executor, check_database_health),
-            timeout=2.0
-        )
-    except asyncio.TimeoutError:
-        logger.warning("Database health check timed out")
-        db_healthy = False
-    except Exception as e:
-        logger.error(f"Error checking database health: {e}")
-        db_healthy = False
-    
-    # Only attempt recovery if unhealthy (don't do it on every health check)
-    if not db_healthy:
-        # Attempt recovery (but don't block health check response)
+
         try:
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            loop = asyncio.get_event_loop()
-            await asyncio.wait_for(
-                loop.run_in_executor(executor, recover_database),
-                timeout=3.0
-            )
-            # Re-check after recovery attempt
             db_healthy = await asyncio.wait_for(
                 loop.run_in_executor(executor, check_database_health),
                 timeout=2.0
             )
-        except (asyncio.TimeoutError, Exception) as e:
-            logger.warning(f"Recovery attempt failed or timed out: {e}")
-    
+        except asyncio.TimeoutError:
+            logger.warning("Database health check timed out")
+            db_healthy = False
+        except Exception as e:
+            logger.error(f"Error checking database health: {e}")
+            db_healthy = False
+
+        if not db_healthy:
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(executor, recover_database),
+                    timeout=3.0
+                )
+                db_healthy = await asyncio.wait_for(
+                    loop.run_in_executor(executor, check_database_health),
+                    timeout=2.0
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"Recovery attempt failed or timed out: {e}")
+    except Exception as e:
+        logger.exception(f"Health check failed: {e}")
+        db_healthy = False
+
     status = "healthy" if db_healthy else "degraded"
-    
     response = {
         "status": status,
         "database": "connected" if db_healthy else "disconnected",
         "api": "operational"
     }
-    
-    # Add diagnostic information if unhealthy (but keep it minimal for speed)
     if not db_healthy:
         response["diagnostics"] = {
             "issue": "Database connection failed",
@@ -206,5 +257,4 @@ async def health():
                 "4. Restart backend: cd backend && source venv/bin/activate && uvicorn main:app --reload"
             ]
         }
-    
     return response

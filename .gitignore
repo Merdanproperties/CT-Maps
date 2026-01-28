@@ -35,6 +35,7 @@ Thumbs.db
 # Database
 *.db
 *.sqlite
+.pg_sync_dump
 
 # Data files (large)
 *.gdb/

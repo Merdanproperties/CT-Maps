@@ -31,23 +31,25 @@ export default function ConnectionStatus() {
       }
     })
 
-    // Start monitoring
-    healthCheckService.startMonitoring()
+    // Monitoring is started by App.tsx; do not call startMonitoring() here to avoid duplicate checks
 
     return () => {
       unsubscribeHealth()
       unsubscribeRecovery()
-      healthCheckService.stopMonitoring()
     }
   }, [])
 
-  if (!isVisible && status.isHealthy) {
+  if (!isVisible) {
     return null
   }
 
+  const isDegraded = status.isHealthy && status.database && status.database !== 'connected'
   const getStatusIcon = () => {
-    if (status.isHealthy) {
+    if (status.isHealthy && status.database === 'connected') {
       return <CheckCircle2 className="connection-status-icon healthy" size={20} />
+    }
+    if (isDegraded) {
+      return <AlertCircle className="connection-status-icon error" size={20} />
     }
     if (Date.now() - status.lastChecked < 2000) {
       return <Loader2 className="connection-status-icon checking" size={20} />
@@ -56,8 +58,13 @@ export default function ConnectionStatus() {
   }
 
   const getStatusMessage = () => {
-    if (status.isHealthy) {
-      return `Connected${status.database === 'connected' ? ' (Database OK)' : ''}`
+    // Backend reachable and DB connected: show Connected
+    if (status.isHealthy && status.database === 'connected') {
+      return 'Connected (Database OK)'
+    }
+    // Backend reachable but DB degraded: softer message, no "start backend" hint
+    if (status.isHealthy && status.database && status.database !== 'connected') {
+      return 'Database temporarily unavailable - retrying...'
     }
     
     if (isRecovering) {
@@ -68,11 +75,14 @@ export default function ConnectionStatus() {
       return recoveryAction.error || 'Service unavailable - please restart backend'
     }
     
-    if (status.database && status.database !== 'connected') {
-      return `Database: ${status.database} - Auto-recovering...`
-    }
-    
     return status.error || 'Checking connection...'
+  }
+
+  const showStartHint = (): boolean => {
+    if (status.isHealthy || isRecovering) return false
+    if (recoveryAction?.type === 'notify') return true
+    if (status.error && (status.error.includes('timeout') || status.error.includes('not responding'))) return true
+    return false
   }
 
   const handleManualRecovery = async () => {
@@ -89,10 +99,17 @@ export default function ConnectionStatus() {
 
   return (
     <>
-      <div className={`connection-status ${status.isHealthy ? 'healthy' : 'error'}`}>
+      <div className={`connection-status ${status.isHealthy && status.database === 'connected' ? 'healthy' : 'error'}`}>
         {getStatusIcon()}
-        <span className="connection-status-message">{getStatusMessage()}</span>
-        {!status.isHealthy && (
+        <div className="connection-status-message-wrap">
+          <span className="connection-status-message">{getStatusMessage()}</span>
+          {showStartHint() && (
+            <span className="connection-status-fix-hint">
+              Docker: run <strong>docker compose up -d --build</strong> from the project root. Local: <strong>./scripts/start_all.sh</strong>.
+            </span>
+          )}
+        </div>
+        {(!status.isHealthy || isDegraded) && (
           <>
             {isRecovering ? (
               <RefreshCw className="connection-status-icon checking" size={16} />

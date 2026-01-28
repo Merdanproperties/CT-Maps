@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import { propertyApi, Property, FilterResponse } from '../api/client'
-import { healthCheckService } from '../services/healthCheck'
 
 export interface PropertyQueryParams {
   filterType?: string | null
@@ -51,7 +50,7 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
 
   // Build base search params
   const buildSearchParams = (baseParams: any = {}) => {
-    const searchParams: any = { ...baseParams, page_size: 2000 }  // Balanced limit
+    const searchParams: any = { ...baseParams, page_size: 200 }  // Reduced to avoid timeouts; increase when indexes/backend are tuned
     // Always include municipality from filterParams if present (ensures it's preserved when other filters change)
     // Convert array to string if needed (backend expects comma-separated string)
     if (filterParams.municipality) {
@@ -155,7 +154,7 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
       default:
         // Fallback to bbox search for unknown filter types
         if (bbox) {
-          return await propertyApi.search({ bbox, page_size: 2000 })
+          return await propertyApi.search({ bbox, page_size: 200 })
         }
         throw new Error(`Unknown filter type: ${filterType}`)
     }
@@ -220,11 +219,11 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
 
   // Priority 5: Default bbox search (show properties in viewport)
   if (bbox) {
-    return await propertyApi.search({ bbox, page_size: 2000 })  // Balanced limit: ~1.6MB per request
+    return await propertyApi.search({ bbox, page_size: 200 })
   }
 
   // No valid query - return empty result
-  return { properties: [], total: 0, page: 1, page_size: 2000 }
+  return { properties: [], total: 0, page: 1, page_size: 200 }
 }
 
 /**
@@ -293,19 +292,12 @@ export function usePropertyQuery(params: PropertyQueryParams) {
     queryFn: async ({ signal }) => {
       // Check if cancelled
       if (signal?.aborted) {
-        return { properties: [], total: 0, page: 1, page_size: 2000 }
+        return { properties: [], total: 0, page: 1, page_size: 200 }
       }
 
       try {
-        // Quick health check before making request (non-blocking, but will wait if backend is down)
-        const healthStatus = healthCheckService.getStatus()
-        if (!healthStatus.isHealthy && Date.now() - healthStatus.lastChecked > 2000) {
-          // Backend might be down, wait a bit for it to come back
-          const isHealthy = await healthCheckService.waitForHealthy(3000)
-          if (!isHealthy) {
-            throw new Error('Backend server is not responding. Please ensure the backend is running on http://localhost:8000')
-          }
-        }
+        // Do not block on health check - let the request run and fail fast if backend is down
+        // (waitForHealthy caused 3–30s stalls when backend was unhealthy)
 
         // When municipality is set, don't use bbox at all - municipality filter should be exclusive
         // Calculate bbox only if municipality is NOT set
@@ -335,14 +327,14 @@ export function usePropertyQuery(params: PropertyQueryParams) {
 
         // Check if cancelled after API call
         if (signal?.aborted) {
-          return { properties: [], total: 0, page: 1, page_size: 2000 }
+          return { properties: [], total: 0, page: 1, page_size: 200 }
         }
 
         return result
       } catch (error: any) {
         // Handle cancellation gracefully
         if (signal?.aborted || error?.message?.includes('cancelled')) {
-          return { properties: [], total: 0, page: 1, page_size: 2000 }
+          return { properties: [], total: 0, page: 1, page_size: 200 }
         }
         throw error
       }

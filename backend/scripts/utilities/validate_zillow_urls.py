@@ -131,7 +131,7 @@ def validate_properties(db: Session, limit: int = None) -> Dict:
         
         url, is_valid = test_url_format(
             prop.address,
-            prop.city,
+            prop.municipality,
             prop.zip_code
         )
         
@@ -141,7 +141,7 @@ def validate_properties(db: Session, limit: int = None) -> Dict:
                 results['sample_urls'].append({
                     'id': prop.id,
                     'address': prop.address,
-                    'city': prop.city,
+                    'city': prop.municipality,
                     'zip': prop.zip_code,
                     'url': url,
                     'valid': is_valid

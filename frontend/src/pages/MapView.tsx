@@ -32,6 +32,7 @@ export default function MapView() {
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [mapBounds, setMapBounds] = useState<{ north: number; south: number; east: number; west: number } | null>(null)
   const [isMapReady, setIsMapReady] = useState(false)
+  const [searchEnabled, setSearchEnabled] = useState(false) // Defer bbox search until after options load
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const mapUpdatingRef = useRef(false)
   const labelMarkersRef = useRef<L.Marker[]>([])
@@ -39,6 +40,7 @@ export default function MapView() {
   const lastQueryTimeRef = useRef<number>(0)
   const fetchingMunicipalityBoundsRef = useRef(false) // Flag to track when municipality bounds are being fetched
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const selectedPropertyScrollRef = useRef<HTMLDivElement | null>(null)
   
   // Memoize the bounds change handler
   // When municipality is set, don't update mapBounds to prevent bbox from interfering with municipality filter
@@ -279,10 +281,10 @@ export default function MapView() {
     filterType,
     filterParams,
     searchQuery,
-    bbox: filterParams?.municipality ? undefined : bbox, // Explicitly exclude bbox when municipality is set
-    mapBounds: filterParams?.municipality ? null : mapBounds, // Don't pass mapBounds when municipality is set
-    center,
-    zoom,
+    bbox: searchEnabled && !filterParams?.municipality ? bbox : undefined,
+    mapBounds: searchEnabled && !filterParams?.municipality ? mapBounds : null,
+    center: searchEnabled ? center : undefined,
+    zoom: searchEnabled ? zoom : undefined,
   })
 
   // Show property list when we have search criteria
@@ -815,74 +817,72 @@ export default function MapView() {
 
   // Calculate centroid of a geometry
   const getCentroid = (geometry: any): [number, number] | null => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:616',message:'getCentroid entry',data:{hasGeometry:!!geometry,geometryType:geometry?.type,hasCoordinates:!!geometry?.coordinates,firstCoord:geometry?.coordinates?.[0]?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (!geometry) return null
     
-    if (geometry.type === 'Polygon' && geometry.coordinates?.[0]?.[0]) {
+    // Handle Point geometry (for Middletown and other geocoded properties)
+    if (geometry.type === 'Point' && geometry.coordinates && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+      // Point coordinates are [longitude, latitude], return as [latitude, longitude]
+      return [geometry.coordinates[1], geometry.coordinates[0]]
+    } else if (geometry.type === 'Polygon' && geometry.coordinates?.[0]?.[0]) {
       const coords = geometry.coordinates[0]
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:620',message:'Polygon centroid calc',data:{coordsLength:coords.length,firstCoord:coords[0],secondCoord:coords[1],coordStructure:Array.isArray(coords[0])?coords[0].length:'not array'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       const [lng, lat] = coords.reduce(
         (acc: [number, number], coord: number[]) => [acc[0] + coord[0], acc[1] + coord[1]],
         [0, 0]
       )
-      const result: [number, number] = [lat / coords.length, lng / coords.length]
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:625',message:'Polygon centroid result',data:{result,sumLng:lng,sumLat:lat,coordsCount:coords.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      return result
+      return [lat / coords.length, lng / coords.length]
     } else if (geometry.type === 'MultiPolygon' && geometry.coordinates?.[0]?.[0]?.[0]) {
       const coords = geometry.coordinates[0][0]
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:627',message:'MultiPolygon centroid calc',data:{coordsLength:coords.length,firstCoord:coords[0],secondCoord:coords[1]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       const [lng, lat] = coords.reduce(
         (acc: [number, number], coord: number[]) => [acc[0] + coord[0], acc[1] + coord[1]],
         [0, 0]
       )
-      const result: [number, number] = [lat / coords.length, lng / coords.length]
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:632',message:'MultiPolygon centroid result',data:{result,sumLng:lng,sumLat:lat,coordsCount:coords.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      return result
+      return [lat / coords.length, lng / coords.length]
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:634',message:'getCentroid returning null',data:{geometryType:geometry?.type,hasCoordinates:!!geometry?.coordinates},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
+    
     return null
   }
 
-  // Create markers for address numbers - only show at street level zoom (15+)
+  // Create markers for property addresses - only show at street level zoom (15+)
   const addressNumberMarkers = useMemo(() => {
-    // Only show address numbers when zoomed in to street level
-    if (zoom < 15 || !properties || properties.length === 0) return []
+    // Only show addresses when zoomed in to street level
+    if (zoom < 15 || !properties || properties.length === 0) {
+      return []
+    }
     
     const markers: JSX.Element[] = []
     
     properties.forEach((property) => {
-      const streetNumber = getStreetNumber(property.address)
-      if (streetNumber && property.geometry?.geometry) {
-        const centroid = getCentroid(property.geometry.geometry)
-        if (centroid) {
-          markers.push(
-            <Marker
-              key={`label-${property.id}`}
-              position={centroid}
-              icon={L.divIcon({
-                className: 'property-number-label',
-                html: `<div class="address-number">${streetNumber}</div>`,
-                iconSize: [50, 25],
-                iconAnchor: [25, 12],
-              })}
-              interactive={false}
-              zIndexOffset={1000}
-            />
-          )
-        }
+      const address = property.address
+      if (!address || !property.geometry?.geometry) {
+        return
       }
+      
+      const centroid = getCentroid(property.geometry.geometry)
+      if (!centroid) {
+        return
+      }
+      
+      // Extract street number for display (matching Torrington style)
+      const streetNumber = getStreetNumber(address)
+      const displayText = streetNumber || address
+      const textLength = displayText.length
+      const iconWidth = Math.max(50, Math.min(100, textLength * 7))
+      const iconHeight = 25
+      
+      markers.push(
+        <Marker
+          key={`label-${property.id}`}
+          position={centroid}
+          icon={L.divIcon({
+            className: 'property-number-label',
+            html: `<div class="address-number">${displayText}</div>`,
+            iconSize: [iconWidth, iconHeight],
+            iconAnchor: [iconWidth / 2, iconHeight],
+          })}
+          interactive={false}
+          zIndexOffset={1000}
+        />
+      )
     })
     
     return markers
@@ -990,6 +990,23 @@ export default function MapView() {
     }
   }, [propertiesToShow.length, shouldShowList, data?.total])
 
+  // Fix overlap for selected property sidebar
+  useEffect(() => {
+    if (selectedPropertyScrollRef.current && selectedProperty && shouldShowSelectedProperty && !shouldShowList) {
+      // Add padding-top to scroll container to prevent sticky header from overlapping address
+      setTimeout(() => {
+        const scrollContainer = selectedPropertyScrollRef.current
+        const header = document.querySelector('.property-list-header') as HTMLElement
+        
+        if (scrollContainer && header) {
+          // Calculate header height and add padding-top to scroll container to prevent overlap
+          const headerHeight = header.offsetHeight
+          scrollContainer.style.paddingTop = `${headerHeight}px`
+        }
+      }, 100)
+    }
+  }, [selectedProperty, shouldShowSelectedProperty, shouldShowList])
+
   return (
     <div className={`map-view ${isSidebarVisible ? 'with-sidebar' : ''}`}>
       <TopFilterBar 
@@ -1044,7 +1061,7 @@ export default function MapView() {
           </div>
           
           <div className="property-list-content">
-            <div className="property-list-scroll">
+            <div className="property-list-scroll" ref={selectedPropertyScrollRef}>
               <div className="property-list-item selected">
                 <PropertyCard
                   property={selectedProperty}

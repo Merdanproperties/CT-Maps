@@ -71,8 +71,25 @@
   }
 }
 
-.connection-status-message {
+.connection-status-message-wrap {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connection-status-message {
+  line-height: 1.3;
+}
+
+.connection-status-fix-hint {
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.95;
+}
+
+.connection-status-fix-hint strong {
+  font-weight: 600;
 }
 
 .connection-status-retry,
