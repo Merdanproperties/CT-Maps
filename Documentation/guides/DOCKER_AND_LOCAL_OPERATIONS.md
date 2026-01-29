@@ -2,14 +2,16 @@
 
 This note captures why the CT Maps stack is working and how to run it reliably.
 
+**We run on Docker only.** All commands below assume you use `docker compose`; backend/frontend code changes require rebuilding the relevant container (`./scripts/rebuild_backend.sh` or `./scripts/rebuild_frontend.sh`).
+
 ---
 
 ## How to Run the App
 
 | Mode | Command | When to use |
 |------|---------|-------------|
-| **Docker (recommended)** | `docker compose up -d` | Normal use: one command, frontend + backend + Postgres stay in sync; no "backend down" drift. |
-| **Local (no Docker)** | `./scripts/start_all.sh` or watchdog | When you want the app to talk directly to your **local** Postgres (e.g. same DB as your DB client). |
+| **Docker (primary)** | `docker compose up -d` | Normal use: one command, frontend + backend + Postgres stay in sync. |
+| **Local (no Docker)** | `./scripts/start_all.sh` or watchdog | Optional: only when you need the app to talk directly to **local** Postgres (e.g. same DB as your DB client). |
 
 **Rule of thumb:** Use **one** mode at a time. Don’t run `start_all.sh` or `npm run dev` while Docker is running — only Docker should use port 3000 so the browser hits the Docker frontend, which proxies to the Docker backend.
 

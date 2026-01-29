@@ -48,9 +48,8 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       VITE_PROXY_TARGET: http://backend:8000
-      VITE_MAPBOX_ACCESS_TOKEN: ${VITE_MAPBOX_ACCESS_TOKEN:-}
+      # Do not set VITE_MAPBOX_* here so env_file (frontend/.env) provides them; otherwise ${VAR:-} overrides with empty
       VITE_MAP_PROVIDER: ${VITE_MAP_PROVIDER:-auto}
-      VITE_MAPBOX_STYLE: ${VITE_MAPBOX_STYLE:-mapbox://styles/mapbox/streets-v12}
     env_file:
       - ./frontend/.env
     depends_on:

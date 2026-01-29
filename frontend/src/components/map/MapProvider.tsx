@@ -10,13 +10,18 @@ export function MapProvider(props: MapComponentProps) {
   const [useMapbox, setUseMapbox] = useState(provider === 'mapbox')
   const [mapboxError, setMapboxError] = useState<string | null>(null)
 
-  // Track provider selection
+  // Track provider selection and log why Leaflet is used (helps debug "why isn't Mapbox running?")
   useEffect(() => {
     if (fallbackReason) {
       console.warn(`⚠️ Map provider fallback: ${fallbackReason}`)
       setUseMapbox(false)
     }
   }, [fallbackReason])
+  useEffect(() => {
+    if (provider === 'leaflet' && fallbackReason) {
+      console.info(`🗺️ Using Leaflet (OpenStreetMap). To use Mapbox: ${fallbackReason}`)
+    }
+  }, [provider, fallbackReason])
 
   // Handle Mapbox errors and fallback
   const handleMapboxError = (error: Error) => {

@@ -49,10 +49,11 @@ export function useMapProvider(): MapProviderConfig {
       }
     }
 
-    // Default to Leaflet
+    // Default to Leaflet (no token)
     return {
       provider: 'leaflet',
-      mapboxToken: undefined
+      mapboxToken: undefined,
+      fallbackReason: 'No VITE_MAPBOX_ACCESS_TOKEN set (add to frontend/.env or Docker env)'
     }
   }, [])
 }

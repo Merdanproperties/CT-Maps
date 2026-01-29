@@ -86,8 +86,8 @@ apiClient.interceptors.request.use(
       (config as any).__retryCount = 0
     }
     // #region agent log
-    const fullUrl = (config.baseURL || '') + (config.url || '')
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:request',message:'API request start',data:{baseURL:config.baseURL,url:config.url,fullUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,E'})}).catch(()=>{})
+    const fullUrl = (config.baseURL || '') + (config.url || '');
+    (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:request',message:'API request start',data:{baseURL:config.baseURL,url:config.url,fullUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,E'})}).catch(()=>{}));
     // #endregion
     console.log('🌐 API Request:', config.method?.toUpperCase(), config.url, config.params)
     return config
@@ -137,7 +137,8 @@ apiClient.interceptors.response.use(
     return response
   },
   async (error: AxiosError) => {
-    const config = error.config as InternalAxiosRequestConfig & { __retryCount?: number }
+    const config = error.config as (InternalAxiosRequestConfig & { __retryCount?: number }) | undefined
+    if (!config) return Promise.reject(error)
     
     // Handle blob error responses (might contain error JSON)
     if (config?.responseType === 'blob' && error.response?.data) {
@@ -177,7 +178,7 @@ apiClient.interceptors.response.use(
       healthCheckService.setUnhealthy(error.message || 'Backend unreachable')
     }
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:error',message:'API response error final',data:{code:error.code,message:error.message,url:config?.url,status:error.response?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{})
+    (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:error',message:'API response error final',data:{code:error.code,message:error.message,url:config?.url,status:error.response?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{}));
     // #endregion
     console.error('❌ API Response Error:', {
       message: error.message,
@@ -186,7 +187,7 @@ apiClient.interceptors.response.use(
       status: error.response?.status,
       statusText: error.response?.statusText,
       data: config?.responseType === 'blob' ? '[Blob]' : error.response?.data,
-      retries: config.__retryCount,
+      retries: config?.__retryCount,
     })
     
     // Provide more helpful error messages with fix instructions
@@ -507,7 +508,7 @@ export const exportApi = {
     
     // #region agent log
     try {
-      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:500',message:'exportCSV API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+      await (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:500',message:'exportCSV API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}));
     } catch (e) {
       console.warn('Debug log failed:', e)
     }
@@ -522,7 +523,7 @@ export const exportApi = {
     
     // #region agent log
     try {
-      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:506',message:'exportCSV response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+      await (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:506',message:'exportCSV response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}));
     } catch (e) {
       console.warn('Debug log failed:', e)
     }
@@ -545,14 +546,14 @@ export const exportApi = {
     max_lot_size?: number
   }): Promise<Blob> => {
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:520',message:'exportJSON API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:520',message:'exportJSON API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}));
     // #endregion
     const response = await apiClient.get('/api/export/json', {
       params,
       responseType: 'blob',
-    })
+    });
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:526',message:'exportJSON response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:526',message:'exportJSON response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}));
     // #endregion
     return response.data
   },
@@ -573,7 +574,7 @@ export const exportApi = {
     
     // #region agent log
     try {
-      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:539',message:'exportExcel API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+      await (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:539',message:'exportExcel API call',data:{params},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}));
     } catch (e) {
       console.warn('Debug log failed:', e)
     }
@@ -594,7 +595,7 @@ export const exportApi = {
       console.error('❌ [Export API] exportExcel error response:', errorText)
       // #region agent log
       try {
-        await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:550',message:'exportExcel error',data:{status:response.status,errorText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+        await (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:550',message:'exportExcel error',data:{status:response.status,errorText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}));
       } catch (e) {
         console.warn('Debug log failed:', e)
       }
@@ -604,7 +605,7 @@ export const exportApi = {
     
     // #region agent log
     try {
-      await fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:545',message:'exportExcel response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})})
+      await (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:545',message:'exportExcel response',data:{status:response.status,blobSize:response.data?.size,blobType:response.data?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}));
     } catch (e) {
       console.warn('Debug log failed:', e)
     }

@@ -32,31 +32,68 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
     ownerState: getFirstValue(selectedFilters.ownerState),
   }), [municipality, selectedFilters.unitType, selectedFilters.zoning, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerCity, selectedFilters.ownerState])
 
-  const { data: towns = [], isLoading: loadingTowns } = useQuery({
+  // #region agent log
+  useEffect(() => {
+    console.log('📊 TopFilterBar mounted, options APIs will run (towns, unitTypes, zoning, ownerCities, ownerStates)')
+  }, [])
+  // #endregion
+  const { data: towns = [], isLoading: loadingTowns, isError: townsError, error: townsErr } = useQuery({
     queryKey: ['towns'],
-    queryFn: () => propertyApi.getTowns(),
+    queryFn: async () => {
+      console.log('🌐 [API] getTowns called')
+      const result = await propertyApi.getTowns()
+      console.log('🌐 [API] getTowns result:', result?.length ?? 0, 'towns')
+      return result
+    },
     staleTime: OPTIONS_STALE_MS,
   })
   const { data: unitTypeOptions = [], isLoading: loadingUnitTypes } = useQuery({
     queryKey: ['unitTypes', filtersForOptions],
-    queryFn: () => propertyApi.getUnitTypeOptions(filtersForOptions).then(r => r.unit_types),
+    queryFn: async () => {
+      console.log('🌐 [API] getUnitTypeOptions called', filtersForOptions)
+      const r = await propertyApi.getUnitTypeOptions(filtersForOptions)
+      const list = r?.unit_types ?? []
+      console.log('🌐 [API] getUnitTypeOptions result:', list.length, 'options')
+      return list
+    },
     staleTime: OPTIONS_STALE_MS,
   })
   const { data: zoningOptions = [], isLoading: loadingZoning } = useQuery({
     queryKey: ['zoning', filtersForOptions],
-    queryFn: () => propertyApi.getZoningOptions(filtersForOptions).then(r => r.zoning_codes),
+    queryFn: async () => {
+      console.log('🌐 [API] getZoningOptions called', filtersForOptions)
+      const r = await propertyApi.getZoningOptions(filtersForOptions)
+      const list = r?.zoning_codes ?? []
+      console.log('🌐 [API] getZoningOptions result:', list.length, 'options')
+      return list
+    },
     staleTime: OPTIONS_STALE_MS,
   })
   const { data: ownerCities = [], isLoading: loadingOwnerCities } = useQuery({
     queryKey: ['ownerCities', filtersForOptions],
-    queryFn: () => propertyApi.getOwnerCities(filtersForOptions),
+    queryFn: async () => {
+      console.log('🌐 [API] getOwnerCities called', filtersForOptions)
+      const result = await propertyApi.getOwnerCities(filtersForOptions)
+      console.log('🌐 [API] getOwnerCities result:', result?.length ?? 0, 'cities')
+      return result
+    },
     staleTime: OPTIONS_STALE_MS,
   })
   const { data: ownerStates = [], isLoading: loadingOwnerStates } = useQuery({
     queryKey: ['ownerStates', filtersForOptions],
-    queryFn: () => propertyApi.getOwnerStates(filtersForOptions),
+    queryFn: async () => {
+      console.log('🌐 [API] getOwnerStates called', filtersForOptions)
+      const result = await propertyApi.getOwnerStates(filtersForOptions)
+      console.log('🌐 [API] getOwnerStates result:', result?.length ?? 0, 'states')
+      return result
+    },
     staleTime: OPTIONS_STALE_MS,
   })
+  // #region agent log
+  useEffect(() => {
+    if (townsError) console.error('❌ [API] getTowns failed:', townsErr)
+  }, [townsError, townsErr])
+  // #endregion
 
   // Sync selectedFilters with municipality prop
   useEffect(() => {

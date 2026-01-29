@@ -52,10 +52,13 @@
   flex: 1;
   min-width: 200px;
   max-width: 400px;
+  overflow: visible;
 }
 
-.filter-search-section .search-bar-container {
+.filter-search-section .search-bar-container,
+.filter-search-section .search-with-chip {
   width: 100%;
+  overflow: visible;
 }
 
 .filter-search-section .search-input-wrapper {
