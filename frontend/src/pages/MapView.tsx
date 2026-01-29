@@ -8,7 +8,7 @@ import PropertyCard from '../components/PropertyCard'
 import TopFilterBar from '../components/TopFilterBar'
 import ExportButton from '../components/ExportButton'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { X, ChevronRight, ChevronLeft, PanelRight, XCircle } from 'lucide-react'
+import { X, ChevronRight, ChevronLeft, PanelRight, PanelLeft, XCircle } from 'lucide-react'
 import { MapProvider } from '../components/map/MapProvider'
 import './MapView.css'
 
@@ -41,7 +41,23 @@ export default function MapView() {
   const fetchingMunicipalityBoundsRef = useRef(false) // Flag to track when municipality bounds are being fetched
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const selectedPropertyScrollRef = useRef<HTMLDivElement | null>(null)
-  
+  const mapViewRef = useRef<HTMLDivElement | null>(null)
+
+  // Keep --total-header-height in sync with actual nav bar height so sidebar is not overlapped
+  useEffect(() => {
+    const mapEl = mapViewRef.current
+    const barEl = document.querySelector('.top-filter-bar')
+    if (!mapEl || !barEl) return
+    const setHeaderHeight = () => {
+      const h = (barEl as HTMLElement).offsetHeight
+      mapEl.style.setProperty('--total-header-height', `${h}px`)
+    }
+    setHeaderHeight()
+    const ro = new ResizeObserver(setHeaderHeight)
+    ro.observe(barEl as Element)
+    return () => ro.disconnect()
+  }, [])
+
   // Memoize the bounds change handler
   // When municipality is set, don't update mapBounds to prevent bbox from interfering with municipality filter
   const handleBoundsChange = useCallback((bounds: { north: number; south: number; east: number; west: number }) => {
@@ -674,9 +690,13 @@ export default function MapView() {
       if (value && value !== 'Clear' && value !== null && value !== undefined) {
         const trimmedValue = value.trim()
         if (trimmedValue.length > 0) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:ownerAddress',message:'Mailing address filter',data:{trimmedLen:trimmedValue.length,trimmedSlice:trimmedValue.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3,H4'})}).catch(()=>{});
+          // #endregion
           // Use searchQuery for real-time results, but preserve other filters
           setSearchQuery(trimmedValue)
           setShowPropertyList(true)
+          setSidebarCollapsed(false)
           // Keep other filters active, but clear municipality to avoid conflicts
           setFilterParams((prev: any) => {
             const newParams = { ...prev }
@@ -950,12 +970,18 @@ export default function MapView() {
   }, [])
 
   // Determine if we should show property list or selected property sidebar
-  const shouldShowList = showPropertyList && (filterParams.municipality || searchQuery || filterType || filterParams.owner_address || filterParams.owner_city || filterParams.owner_state || (data?.properties && data.properties.length > 0))
+  const shouldShowList = showPropertyList
   const shouldShowSelectedProperty = selectedProperty !== null && !shouldShowList
   const propertiesToShow = data?.properties || []
   const hasSidebarContent = shouldShowList || shouldShowSelectedProperty
   const isSidebarVisible = hasSidebarContent && !sidebarCollapsed
   const hasProperties = propertiesToShow.length > 0
+
+  // #region agent log
+  useEffect(() => {
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:sidebar-state',message:'Sidebar render state',data:{shouldShowList,hasSidebarContent,isSidebarVisible,propertiesToShowLen:propertiesToShow.length,dataTotal:data?.total,searchQuery:searchQuery?.slice(0,30),ownerAddress:filterParams?.owner_address?.slice(0,30),showPropertyList,sidebarCollapsed},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1,H2,H5'})}).catch(()=>{});
+  }, [shouldShowList, hasSidebarContent, isSidebarVisible, propertiesToShow.length, data?.total, searchQuery, filterParams?.owner_address, showPropertyList, sidebarCollapsed]);
+  // #endregion
 
   // Debug: Log when data changes
   useEffect(() => {
@@ -971,22 +997,10 @@ export default function MapView() {
     })
   }, [filterParams, searchQuery, filterType, showPropertyList, shouldShowList, data?.total, propertiesToShow.length, isLoading])
 
-  // Scroll to top when properties change to ensure first card is fully visible
+  // Scroll to top when properties change
   useEffect(() => {
     if (scrollContainerRef.current && propertiesToShow.length > 0 && shouldShowList) {
       scrollContainerRef.current.scrollTop = 0
-      
-      // Add padding-top to scroll container to prevent sticky header from overlapping first card
-      setTimeout(() => {
-        const scrollContainer = scrollContainerRef.current
-        const header = document.querySelector('.property-list-header') as HTMLElement
-        
-        if (scrollContainer && header) {
-          // Calculate header height and add padding-top to scroll container to prevent overlap
-          const headerHeight = header.offsetHeight
-          scrollContainer.style.paddingTop = `${headerHeight}px`
-        }
-      }, 100)
     }
   }, [propertiesToShow.length, shouldShowList, data?.total])
 
@@ -1008,16 +1022,20 @@ export default function MapView() {
   }, [selectedProperty, shouldShowSelectedProperty, shouldShowList])
 
   return (
-    <div className={`map-view ${isSidebarVisible ? 'with-sidebar' : ''}`}>
+    <div ref={mapViewRef} className={`map-view ${isSidebarVisible ? 'with-sidebar' : ''}`}>
       <TopFilterBar 
         onFilterChange={handleFilterChange}
         onSearchChange={(query) => {
           console.log('🔍 SearchBar query changed:', query)
-          // When user types in search bar, update searchQuery
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:onSearchChange',message:'Search bar query change',data:{queryLen:query?.length,queryTrimmed:query?.trim()?.slice(0,40),willSetSearch:!!(query && query.trim().length > 0)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2,H3'})}).catch(()=>{});
+          // #endregion
+          // When user types in search bar, update searchQuery and open sidebar
           if (query && query.trim().length > 0) {
             console.log('✅ Setting searchQuery to:', query.trim())
             setSearchQuery(query.trim())
             setShowPropertyList(true)
+            setSidebarCollapsed(false) // Open sidebar as user types
             // Clear municipality filter when typing
             setFilterParams({})
             setFilterType(null)
@@ -1029,6 +1047,15 @@ export default function MapView() {
         onClearAllFilters={handleClearAllFilters}
         municipality={filterParams.municipality || null}
         filterParams={filterParams}
+        sidebarOpen={isSidebarVisible}
+        onSidebarToggle={() => {
+          if (isSidebarVisible) {
+            setSidebarCollapsed(true)
+          } else {
+            setSidebarCollapsed(false)
+            setShowPropertyList(true)
+          }
+        }}
       />
       
       {/* Selected Property Sidebar (shown when clicking on map) */}
@@ -1249,30 +1276,30 @@ export default function MapView() {
         </div>
       )}
 
-      {/* Sidebar toggle button - show when collapsed or when there are properties but sidebar is hidden */}
-      {((hasSidebarContent && sidebarCollapsed) || (hasProperties && !hasSidebarContent)) && (
-        <button
-          className="sidebar-toggle-button"
-          onClick={() => {
-            if (hasSidebarContent && sidebarCollapsed) {
-              // Expand collapsed sidebar
-              setSidebarCollapsed(false)
-            } else if (hasProperties && !hasSidebarContent) {
-              // Open sidebar to show properties from map view
-              setShowPropertyList(true)
-            }
-          }}
-          aria-label="Open sidebar"
-          title="Open sidebar to view properties"
-        >
-          <PanelRight size={20} />
-          {hasProperties && !hasSidebarContent && (
-            <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem' }}>
-              {data?.total?.toLocaleString() || propertiesToShow.length} properties
-            </span>
-          )}
-        </button>
-      )}
+      {/* Sidebar toggle button - always visible so user sees it on refresh without waiting for data */}
+      <button
+        type="button"
+        className="sidebar-toggle-button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation()
+          if (isSidebarVisible) {
+            setSidebarCollapsed(true)
+          } else {
+            setSidebarCollapsed(false)
+            setShowPropertyList(true)
+          }
+        }}
+        aria-label={isSidebarVisible ? 'Close properties sidebar' : 'Open properties sidebar'}
+        title={isSidebarVisible ? 'Close properties sidebar' : 'Open properties sidebar'}
+      >
+        {isSidebarVisible ? <PanelLeft size={20} /> : <PanelRight size={20} />}
+        {hasProperties && !hasSidebarContent && (
+          <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+            {data?.total?.toLocaleString() || propertiesToShow.length} properties
+          </span>
+        )}
+      </button>
 
       <div className="map-controls-bottom">
         {data && !error && (

@@ -90,6 +90,26 @@ function MapInitializer({
   return null
 }
 
+// When container or window size changes (sidebar, header, F12 DevTools), tell Leaflet to recalc so the map doesn't white out
+function MapResizeHandler() {
+  const map = useMap()
+  useEffect(() => {
+    const invalidate = () => setTimeout(() => map.invalidateSize(), 0)
+    const container = map.getContainer()
+    if (container) {
+      const ro = new ResizeObserver(invalidate)
+      ro.observe(container)
+      const onWindowResize = () => invalidate()
+      window.addEventListener('resize', onWindowResize)
+      return () => {
+        ro.disconnect()
+        window.removeEventListener('resize', onWindowResize)
+      }
+    }
+  }, [map])
+  return null
+}
+
 // Component to update map view when center/zoom changes
 function MapUpdater({ center, zoom, skipUpdate, onUpdate }: { 
   center: [number, number], 
@@ -234,6 +254,7 @@ export function LeafletMap(props: MapComponentProps) {
           setZoom={setZoom}
           mapUpdatingRef={mapUpdatingRef}
         />
+        <MapResizeHandler />
         <MapUpdater 
           center={center} 
           zoom={zoom} 

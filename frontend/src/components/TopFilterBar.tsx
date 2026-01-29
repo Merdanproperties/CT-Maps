@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, ChevronDown, Save, X, XCircle } from 'lucide-react'
+import { Search, ChevronDown, Save, X, XCircle, PanelRight, PanelLeft, User } from 'lucide-react'
 import SearchBar from './SearchBar'
 import { propertyApi } from '../api/client'
 import './TopFilterBar.css'
@@ -13,9 +13,11 @@ interface TopFilterBarProps {
   onClearAllFilters?: () => void
   municipality?: string | null
   filterParams?: Record<string, any>
+  sidebarOpen?: boolean
+  onSidebarToggle?: () => void
 }
 
-export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAllFilters, municipality, filterParams }: TopFilterBarProps) {
+export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAllFilters, municipality, filterParams, sidebarOpen, onSidebarToggle }: TopFilterBarProps) {
   const [selectedFilters, setSelectedFilters] = useState<Record<string, any>>({})
   const getFirstValue = (value: any): string | undefined => {
     if (!value) return undefined
@@ -276,12 +278,41 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
           <div className="logo-subtitle">PROPERTY GROUP</div>
         </div>
         
-        {/* Search integrated into filter bar */}
+        {/* Main search: address + town in one bar */}
         <div className="filter-search-section">
           <div className="search-with-chip">
-            <SearchBar 
-              placeholder="Address, city, owner name, owner address..." 
+            <SearchBar
+              searchMode="address_town"
+              placeholder="Address or town..."
               onQueryChange={onSearchChange}
+            />
+          </div>
+        </div>
+        {/* Owner search: separate bar for owner name */}
+        <div className="filter-search-owner">
+          <div className="search-with-chip">
+            <SearchBar
+              searchMode="owner"
+              placeholder="Search by owner..."
+              onQueryChange={onSearchChange}
+            />
+          </div>
+        </div>
+
+        {/* Mailing address search: same style as Address and Owner search bars */}
+        <div className="filter-search-mailing">
+          <div className="search-bar-input-box filter-search-mailing-input-box">
+            <Search className="search-icon" size={20} />
+            <FilterDropdown
+              label="Mailing Address"
+              options={['Clear']}
+              onSelect={(value) => handleFilterSelect('ownerAddress', value)}
+              selected={selectedFilters.ownerAddress}
+              multiSelect={false}
+              isTextInput={true}
+              placeholder="Enter mailing address..."
+              selectedFilters={selectedFilters}
+              municipality={municipality}
             />
           </div>
         </div>
@@ -405,19 +436,6 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             multiSelect={true}
           />
           
-          {/* Owner Mailing Address Filter */}
-          <FilterDropdown
-            label="Mailing Address"
-            options={['Clear']}
-            onSelect={(value) => handleFilterSelect('ownerAddress', value)}
-            selected={selectedFilters.ownerAddress}
-            multiSelect={false}
-            isTextInput={true}
-            placeholder="Enter mailing address..."
-            selectedFilters={selectedFilters}
-            municipality={municipality}
-          />
-          
           {/* Owner Mailing City Filter */}
           <FilterDropdown
             label="Owner Mailing City"
@@ -438,6 +456,20 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             multiSelect={true}
           />
         </div>
+
+        {/* Properties sidebar toggle - visible so user can open/close sidebar */}
+        {onSidebarToggle && (
+          <button
+            type="button"
+            className={`properties-sidebar-toggle ${sidebarOpen ? 'open' : ''}`}
+            onClick={onSidebarToggle}
+            aria-label={sidebarOpen ? 'Close properties sidebar' : 'Open properties sidebar'}
+            title={sidebarOpen ? 'Close properties sidebar' : 'Open properties sidebar'}
+          >
+            {sidebarOpen ? <PanelLeft size={18} /> : <PanelRight size={18} />}
+            <span>Properties</span>
+          </button>
+        )}
 
         {/* Clear All Filters Button */}
         {hasActiveFilters() && onClearAllFilters && (
@@ -480,8 +512,10 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
   const [searchQuery, setSearchQuery] = useState('')
   const [textInputValue, setTextInputValue] = useState('')
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([])
+  const [richAutocompleteSuggestions, setRichAutocompleteSuggestions] = useState<Array<{ type: string; value: string; display: string; count?: number }>>([])
   const [showAutocomplete, setShowAutocomplete] = useState(false)
   const [isLoadingAutocomplete, setIsLoadingAutocomplete] = useState(false)
+  const useRichAutocomplete = isTextInput && label === 'Mailing Address'
   const searchInputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<HTMLDivElement>(null)
   
@@ -553,38 +587,57 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
     return Array.isArray(value) ? value[0] : value
   }
 
-  // Fetch autocomplete suggestions for owner address
+  // Fetch autocomplete suggestions for Mailing Address (rich format like other search bars) or other text inputs
   useEffect(() => {
-    if (!isTextInput || label !== 'Mailing Address') return
-    
-    const fetchSuggestions = async () => {
-      if (textInputValue.length < 1) {
-        setAutocompleteSuggestions([])
-        setShowAutocomplete(false)
-        return
-      }
+    if (!isTextInput) return
 
-      setIsLoadingAutocomplete(true)
-      try {
-        const filters = {
-          municipality: municipality || undefined,
-          unitType: getFirstValue(selectedFilters.unitType),
-          zoning: getFirstValue(selectedFilters.zoning),
-          propertyAge: getFirstValue(selectedFilters.propertyAge),
-          timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
-          annualTax: getFirstValue(selectedFilters.annualTax),
-          ownerCity: getFirstValue(selectedFilters.ownerCity),
-          ownerState: getFirstValue(selectedFilters.ownerState)
+    const fetchSuggestions = async () => {
+      if (useRichAutocomplete) {
+        if (textInputValue.length < 2) {
+          setRichAutocompleteSuggestions([])
+          setShowAutocomplete(false)
+          return
         }
-        const suggestions = await propertyApi.getOwnerAddressSuggestions(textInputValue, filters)
-        setAutocompleteSuggestions(suggestions)
-        setShowAutocomplete(suggestions.length > 0 && textInputValue.length > 0)
-      } catch (error) {
-        console.error('Error fetching address suggestions:', error)
-        setAutocompleteSuggestions([])
-        setShowAutocomplete(false)
-      } finally {
-        setIsLoadingAutocomplete(false)
+        setIsLoadingAutocomplete(true)
+        try {
+          const { suggestions } = await propertyApi.getAutocompleteSuggestions(textInputValue, 'owner_address', 10)
+          setRichAutocompleteSuggestions(suggestions)
+          setShowAutocomplete(suggestions.length > 0 && textInputValue.length > 0)
+        } catch (error) {
+          console.error('Error fetching mailing address suggestions:', error)
+          setRichAutocompleteSuggestions([])
+          setShowAutocomplete(false)
+        } finally {
+          setIsLoadingAutocomplete(false)
+        }
+      } else {
+        if (textInputValue.length < 1) {
+          setAutocompleteSuggestions([])
+          setShowAutocomplete(false)
+          return
+        }
+        setIsLoadingAutocomplete(true)
+        try {
+          const filters = {
+            municipality: municipality || undefined,
+            unitType: getFirstValue(selectedFilters.unitType),
+            zoning: getFirstValue(selectedFilters.zoning),
+            propertyAge: getFirstValue(selectedFilters.propertyAge),
+            timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
+            annualTax: getFirstValue(selectedFilters.annualTax),
+            ownerCity: getFirstValue(selectedFilters.ownerCity),
+            ownerState: getFirstValue(selectedFilters.ownerState)
+          }
+          const suggestions = await propertyApi.getOwnerAddressSuggestions(textInputValue, filters)
+          setAutocompleteSuggestions(suggestions)
+          setShowAutocomplete(suggestions.length > 0 && textInputValue.length > 0)
+        } catch (error) {
+          console.error('Error fetching address suggestions:', error)
+          setAutocompleteSuggestions([])
+          setShowAutocomplete(false)
+        } finally {
+          setIsLoadingAutocomplete(false)
+        }
       }
     }
 
@@ -593,7 +646,7 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
     }, 300) // Debounce
 
     return () => clearTimeout(timer)
-  }, [textInputValue, isTextInput, label, selectedFilters, municipality])
+  }, [textInputValue, isTextInput, label, selectedFilters, municipality, useRichAutocomplete])
 
   // Close autocomplete when clicking outside
   useEffect(() => {
@@ -642,7 +695,10 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
             onKeyDown={handleTextInputKeyDown}
             onFocus={() => {
               setIsOpen(true)
-              if (autocompleteSuggestions.length > 0 && textInputValue.length > 0) {
+              const hasSuggestions = useRichAutocomplete
+                ? richAutocompleteSuggestions.length > 0 && textInputValue.length >= 2
+                : autocompleteSuggestions.length > 0 && textInputValue.length > 0
+              if (hasSuggestions) {
                 setShowAutocomplete(true)
               }
             }}
@@ -663,24 +719,58 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
             </button>
           )}
           {showAutocomplete && (
-            <div className="filter-autocomplete-dropdown">
-              {isLoadingAutocomplete ? (
-                <div className="filter-autocomplete-loading">Loading...</div>
-              ) : autocompleteSuggestions.length === 0 ? (
-                <div className="filter-autocomplete-no-results">No results found</div>
-              ) : (
-                autocompleteSuggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    className="filter-autocomplete-item"
-                    onClick={() => handleSuggestionSelect(suggestion)}
-                  >
-                    {suggestion}
-                  </button>
-                ))
-              )}
-            </div>
+            useRichAutocomplete ? (
+              <div className="search-bar-suggestions">
+                {isLoadingAutocomplete ? (
+                  <div className="search-bar-loading">Loading...</div>
+                ) : richAutocompleteSuggestions.length === 0 ? (
+                  <div className="search-bar-no-results">No results found</div>
+                ) : (
+                  richAutocompleteSuggestions.map((suggestion, index) => (
+                    <button
+                      key={`${suggestion.type}-${suggestion.value}-${index}`}
+                      type="button"
+                      className="search-bar-suggestion"
+                      data-type="owner_address"
+                      onClick={() => handleSuggestionSelect(suggestion.value)}
+                    >
+                      <div className="search-bar-suggestion-icon">
+                        <User size={16} />
+                      </div>
+                      <div className="search-bar-suggestion-content">
+                        <div className="search-bar-suggestion-text">
+                          {suggestion.display}
+                        </div>
+                        {suggestion.count != null && (
+                          <div className="search-bar-suggestion-count">
+                            {suggestion.count.toLocaleString()} {suggestion.count === 1 ? 'property' : 'properties'}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : (
+              <div className="filter-autocomplete-dropdown">
+                {isLoadingAutocomplete ? (
+                  <div className="filter-autocomplete-loading">Loading...</div>
+                ) : autocompleteSuggestions.length === 0 ? (
+                  <div className="filter-autocomplete-no-results">No results found</div>
+                ) : (
+                  autocompleteSuggestions.map((suggestion, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      className="filter-autocomplete-item"
+                      onClick={() => handleSuggestionSelect(suggestion)}
+                    >
+                      {suggestion}
+                    </button>
+                  ))
+                )}
+              </div>
+            )
           )}
         </div>
       ) : (

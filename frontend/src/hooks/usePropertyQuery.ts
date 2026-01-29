@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { propertyApi, Property, FilterResponse } from '../api/client'
 
@@ -286,6 +287,12 @@ export function usePropertyQuery(params: PropertyQueryParams) {
   const hasBbox = filterParams?.municipality ? false : (!!bbox || !!mapBounds || (!!center && !!zoom))
 
   const enabled = hasSearchCriteria || hasBbox
+
+  // #region agent log
+  useEffect(() => {
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'usePropertyQuery.ts:enabled',message:'Query enabled state',data:{enabled,hasSearchCriteria,hasBbox,searchQueryLen:searchQuery?.trim()?.length,hasOwnerAddress:!!filterParams?.owner_address},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4,H5'})}).catch(()=>{});
+  }, [enabled, hasSearchCriteria, hasBbox, searchQuery, filterParams?.owner_address])
+  // #endregion
 
   const queryResult = useQuery({
     queryKey,

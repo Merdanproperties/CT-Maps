@@ -48,17 +48,78 @@
   max-width: 100%;
 }
 
-.filter-search-section {
+/* All three search bars: same size */
+.filter-search-section,
+.filter-search-owner,
+.filter-search-mailing {
   flex: 1;
-  min-width: 220px;
-  max-width: 640px;
+  min-width: 200px;
+  max-width: 320px;
   overflow: visible;
 }
 
+.filter-search-owner .search-bar-container,
+.filter-search-owner .search-with-chip,
 .filter-search-section .search-bar-container,
-.filter-search-section .search-with-chip {
+.filter-search-section .search-with-chip,
+.filter-search-mailing .search-with-chip {
   width: 100%;
   overflow: visible;
+}
+
+/* Mailing address: same style as Address/Owner search bars (input box + search icon) */
+.filter-search-mailing .filter-search-mailing-input-box {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border: 1px solid #d4d4c4;
+  border-radius: 6px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.filter-search-mailing .filter-search-mailing-input-box:focus-within {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+.filter-search-mailing .filter-search-mailing-input-box .search-icon {
+  color: #9ca3af;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+.filter-search-mailing .filter-dropdown {
+  flex: 1;
+  min-width: 0;
+}
+.filter-search-mailing .filter-text-input-wrapper {
+  border: none;
+  background: transparent;
+  min-height: auto;
+  width: 100%;
+}
+.filter-search-mailing .filter-text-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  color: #111827;
+  padding: 0;
+  box-sizing: border-box;
+}
+.filter-search-mailing .filter-text-input::placeholder {
+  color: #9ca3af;
+}
+.filter-search-mailing .filter-text-input:focus {
+  outline: none;
+}
+.filter-search-mailing .clear-text-input-btn {
+  margin-left: 0.25rem;
+  color: #9ca3af;
+  background: none;
+}
+.filter-search-mailing .clear-text-input-btn:hover {
+  color: #374151;
+  background: transparent;
 }
 
 .filter-search-section .search-input-wrapper {
@@ -322,6 +383,39 @@
   transform: translateY(0);
 }
 
+/* Properties sidebar toggle - visible in filter bar */
+.properties-sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #ffffff;
+  border: 1px solid #d4d4c4;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1a1a1a;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.properties-sidebar-toggle:hover {
+  background: #f0f0e8;
+  border-color: #c4c4b4;
+}
+
+.properties-sidebar-toggle.open {
+  background: #e8e8dc;
+  border-color: #b4b4a4;
+  color: #1a1a1a;
+}
+
+.properties-sidebar-toggle.open:hover {
+  background: #e0e0d4;
+  border-color: #a4a494;
+}
+
 .filter-text-input-wrapper {
   position: relative;
   display: flex;
@@ -437,7 +531,9 @@
     font-size: 0.6rem;
   }
   
-  .filter-search-section {
+  .filter-search-section,
+  .filter-search-owner,
+  .filter-search-mailing {
     width: 100%;
     max-width: 100%;
   }
@@ -465,7 +561,9 @@
     gap: 0.75rem;
   }
 
-  .filter-search-section {
+  .filter-search-section,
+  .filter-search-owner,
+  .filter-search-mailing {
     width: 100%;
     max-width: 100%;
     order: 2;
@@ -505,7 +603,7 @@
 
   /* Mobile: Ensure Save Search button is visible and accessible */
   .save-search-btn {
-    order: 5;
+    order: 6;
     width: 100%;
     min-height: 44px;
     justify-content: center;

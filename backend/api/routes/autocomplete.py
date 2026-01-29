@@ -28,18 +28,20 @@ class AutocompleteResponse(BaseModel):
 async def autocomplete(
     q: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(10, ge=1, le=50, description="Maximum number of suggestions"),
-    search_type: Optional[str] = Query(None, description="Limit to: address, town, owner. Omit for all types (slower)."),
+    search_type: Optional[str] = Query(None, description="Limit to: address, town, owner, owner_address, or address_town (address + town only). Omit for all types (slower)."),
     db: Session = Depends(get_db)
 ):
     """
     Autocomplete suggestions for addresses, towns, and owners.
-    Use search_type=address|town|owner to run only one query (faster). Omit for all.
+    Use search_type=address|town|owner|address_town to run fewer queries (faster). Omit for all.
+    address_town = address and town only (no owner), for a combined main search bar.
     """
     suggestions: List[AutocompleteSuggestion] = []
     search_term = f"%{q}%"
-    want_address = search_type is None or search_type == "address"
-    want_town = search_type is None or search_type == "town"
+    want_address = search_type is None or search_type == "address" or search_type == "address_town"
+    want_town = search_type is None or search_type == "town" or search_type == "address_town"
     want_owner = search_type is None or search_type == "owner"
+    want_owner_address_only = search_type == "owner_address"
 
     # Get matching addresses (only when type is None or address)
     if want_address:
@@ -134,8 +136,57 @@ async def autocomplete(
                 center_lng=float(result.center_lng) if result.center_lng else None
             ))
 
-    # Get matching owner names (only when type is None or owner)
-    if want_owner:
+    # Get matching owner mailing addresses only (when search_type=owner_address)
+    if want_owner_address_only:
+        owner_address_results = db.query(
+            Property.owner_address,
+            Property.owner_city,
+            Property.owner_state,
+            func.count(Property.id).label('count'),
+            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
+            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
+        ).filter(
+            or_(
+                Property.owner_address.ilike(search_term),
+                func.concat(
+                    func.coalesce(Property.owner_address, ''),
+                    ', ',
+                    func.coalesce(Property.owner_city, ''),
+                    ', ',
+                    func.coalesce(Property.owner_state, '')
+                ).ilike(search_term)
+            ),
+            Property.owner_address.isnot(None),
+            Property.owner_address != ''
+        ).group_by(
+            Property.owner_address,
+            Property.owner_city,
+            Property.owner_state
+        ).having(
+            func.count(Property.id) > 0
+        ).order_by(
+            func.count(Property.id).desc()
+        ).limit(limit).all()
+
+        for result in owner_address_results:
+            address_parts = [result.owner_address]
+            if result.owner_city:
+                address_parts.append(result.owner_city)
+            if result.owner_state:
+                address_parts.append(result.owner_state)
+            full_address = ', '.join(address_parts)
+
+            suggestions.append(AutocompleteSuggestion(
+                type='owner_address',
+                value=full_address,
+                display=f"{full_address} ({result.count} properties)",
+                count=result.count,
+                center_lat=float(result.center_lat) if result.center_lat else None,
+                center_lng=float(result.center_lng) if result.center_lng else None
+            ))
+
+    # Get matching owner names (only when type is None or owner; skip when owner_address only)
+    if want_owner and not want_owner_address_only:
         owner_name_results = db.query(
             Property.owner_name,
             func.count(Property.id).label('count'),
@@ -211,8 +262,8 @@ async def autocomplete(
                 center_lng=float(result.center_lng) if result.center_lng else None
             ))
 
-    # Add state suggestions (CT, Connecticut) only when no search_type filter (full search)
-    if search_type is None:
+    # Add state suggestions (CT, Connecticut) when full search or address_town
+    if search_type is None or search_type == "address_town":
         state_query = q.upper().strip()
         if state_query in ['CT', 'CONN', 'CONNECTICUT'] or 'connecticut' in q.lower():
             total_count = db.query(func.count(Property.id)).scalar() or 0

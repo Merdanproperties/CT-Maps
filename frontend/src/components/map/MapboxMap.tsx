@@ -33,6 +33,7 @@ export function MapboxMap(props: MapComponentProps) {
   const [hasError, setHasError] = useState(false)
   const lastBoundsRef = useRef<string | null>(null)
   const boundsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
 
   // Extract street number from address
   const getStreetNumber = (address: string | null | undefined): string | null => {
@@ -197,6 +198,28 @@ export function MapboxMap(props: MapComponentProps) {
     }
   }, [center, zoom, mapInstance, mapUpdatingRef])
 
+  // When container or window size changes (sidebar, F12 DevTools), tell Mapbox to recalc so the map doesn't white out
+  useEffect(() => {
+    if (!mapInstance) return
+    const resize = () => {
+      try {
+        mapInstance.resize()
+      } catch (_) {}
+    }
+    const wrapper = wrapperRef.current
+    if (wrapper) {
+      const ro = new ResizeObserver(resize)
+      ro.observe(wrapper)
+      window.addEventListener('resize', resize)
+      return () => {
+        ro.disconnect()
+        window.removeEventListener('resize', resize)
+      }
+    }
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [mapInstance])
+
   // Handle map load
   const onMapLoad = useCallback((event: any) => {
     try {
@@ -246,7 +269,7 @@ export function MapboxMap(props: MapComponentProps) {
   const style = geoJsonStyle()
 
   return (
-    <div className="map-container-wrapper">
+    <div className="map-container-wrapper" ref={wrapperRef}>
       <Map
         mapboxAccessToken={mapboxToken}
         initialViewState={{

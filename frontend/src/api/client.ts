@@ -489,6 +489,19 @@ export const propertyApi = {
     const response = await apiClient.get('/api/autocomplete/owner-addresses', { params })
     return response.data
   },
+
+  /** Main autocomplete with rich suggestions (type, value, display, count) for SearchBar-style dropdown */
+  getAutocompleteSuggestions: async (
+    q: string,
+    searchType: string,
+    limit: number = 10
+  ): Promise<{ suggestions: Array<{ type: string; value: string; display: string; count?: number }> }> => {
+    if (!q || q.length < 2) return { suggestions: [] }
+    const response = await apiClient.get('/api/autocomplete/', {
+      params: { q, limit, search_type: searchType }
+    })
+    return { suggestions: response.data?.suggestions ?? [] }
+  },
 }
 
 export const exportApi = {

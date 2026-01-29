@@ -31,6 +31,10 @@ Troubleshooting guides and solutions:
 - **NOMINATIM_FREE_SOLUTION.md** - Free Nominatim solution
 - **WHY_LOCAL_NOMINATIM.md** - Explanation of local Nominatim setup
 
+### Reference (root)
+Reference docs for past fixes and patterns:
+- **REFERENCE_MAP_VIEW_AND_SIDEBAR_FIXES.md** - Map view layout, sidebar whitespace/overlap, map resize (F12/DevTools), and search-bar behavior
+
 ### `setup/`
 Setup and installation guides:
 - **NOMINATIM_SETUP.md** - Nominatim setup instructions

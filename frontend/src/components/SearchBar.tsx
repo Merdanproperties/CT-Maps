@@ -13,10 +13,15 @@ interface AutocompleteSuggestion {
   center_lng?: number
 }
 
+/** When set, single bar only (no type dropdown). address_town = address + town; owner = owner only. */
+export type SearchBarMode = 'address_town' | 'owner'
+
 interface SearchBarProps {
   onSelect?: (suggestion: AutocompleteSuggestion) => void
   onQueryChange?: (query: string) => void
   placeholder?: string
+  /** Single bar for address+town or owner only; no dropdown. */
+  searchMode?: SearchBarMode
 }
 
 export type SearchBarType = 'address' | 'town' | 'owner'
@@ -33,7 +38,18 @@ const SEARCH_TYPE_PLACEHOLDERS: Record<SearchBarType, string> = {
   owner: 'Search by owner name...',
 }
 
-export default function SearchBar({ onSelect, onQueryChange, placeholder }: SearchBarProps) {
+const MODE_PLACEHOLDERS: Record<SearchBarMode, string> = {
+  address_town: 'Address or town...',
+  owner: 'Search by owner...',
+}
+
+/** API search_type for each mode */
+const MODE_SEARCH_TYPE: Record<SearchBarMode, string> = {
+  address_town: 'address_town',
+  owner: 'owner',
+}
+
+export default function SearchBar({ onSelect, onQueryChange, placeholder, searchMode }: SearchBarProps) {
   const navigate = useNavigate()
   const [searchType, setSearchType] = useState<SearchBarType>('address')
   const [query, setQuery] = useState('')
@@ -45,7 +61,8 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder }: Sear
   const searchRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const effectivePlaceholder = placeholder ?? SEARCH_TYPE_PLACEHOLDERS[searchType]
+  const effectiveSearchType = searchMode != null ? MODE_SEARCH_TYPE[searchMode] : searchType
+  const effectivePlaceholder = placeholder ?? (searchMode != null ? MODE_PLACEHOLDERS[searchMode] : SEARCH_TYPE_PLACEHOLDERS[searchType])
 
   // Fetch autocomplete suggestions – show dropdown as user types (Loading then results or No results)
   const fetchSuggestions = useCallback(async (searchQuery: string) => {
@@ -61,8 +78,9 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder }: Sear
     (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:40',message:'Fetching suggestions started',data:{searchQuery,queryLength:searchQuery.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{}));
     // #endregion
     try {
+      const apiSearchType = searchMode != null ? MODE_SEARCH_TYPE[searchMode] : searchType
       const response = await apiClient.get('/api/autocomplete/', {
-        params: { q: searchQuery, limit: 10, search_type: searchType }
+        params: { q: searchQuery, limit: 10, search_type: apiSearchType }
       });
       const suggestions = response.data.suggestions || [];
       // #region agent log
@@ -81,7 +99,7 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder }: Sear
     } finally {
       if (typeof setIsLoading === 'function') setIsLoading(false);
     }
-  }, [searchType])
+  }, [searchMode, searchType])
 
   // Debounced search
   useEffect(() => {
@@ -258,45 +276,47 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder }: Sear
   return (
     <div className="search-bar" ref={searchRef}>
       <div className="search-bar-row">
-        {/* Separate dropdown button next to the search bar */}
-        <div className="search-bar-type-dropdown">
-          <button
-            type="button"
-            className="search-bar-type-dropdown-btn"
-            onClick={() => setShowTypeDropdown((open) => !open)}
-            aria-expanded={showTypeDropdown}
-            aria-haspopup="listbox"
-            aria-label="Search by"
-          >
-            <span>{SEARCH_TYPE_LABELS[searchType]}</span>
-            <ChevronDown size={16} className={showTypeDropdown ? 'open' : ''} />
-          </button>
-          {showTypeDropdown && (
-            <>
-              <div className="search-bar-type-overlay" onClick={() => setShowTypeDropdown(false)} aria-hidden="true" />
-              <div className="search-bar-type-menu" role="listbox">
-                {searchTypes.map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    role="option"
-                    aria-selected={searchType === type}
-                    className={`search-bar-type-option ${searchType === type ? 'selected' : ''}`}
-                    onClick={() => {
-                      setSearchType(type)
-                      setSuggestions([])
-                      setShowSuggestions(false)
-                      setShowTypeDropdown(false)
-                      inputRef.current?.focus()
-                    }}
-                  >
-                    {SEARCH_TYPE_LABELS[type]}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        {/* Type dropdown only when searchMode is not set (single combined bar) */}
+        {searchMode == null && (
+          <div className="search-bar-type-dropdown">
+            <button
+              type="button"
+              className="search-bar-type-dropdown-btn"
+              onClick={() => setShowTypeDropdown((open) => !open)}
+              aria-expanded={showTypeDropdown}
+              aria-haspopup="listbox"
+              aria-label="Search by"
+            >
+              <span>{SEARCH_TYPE_LABELS[searchType]}</span>
+              <ChevronDown size={16} className={showTypeDropdown ? 'open' : ''} />
+            </button>
+            {showTypeDropdown && (
+              <>
+                <div className="search-bar-type-overlay" onClick={() => setShowTypeDropdown(false)} aria-hidden="true" />
+                <div className="search-bar-type-menu" role="listbox">
+                  {searchTypes.map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      role="option"
+                      aria-selected={searchType === type}
+                      className={`search-bar-type-option ${searchType === type ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSearchType(type)
+                        setSuggestions([])
+                        setShowSuggestions(false)
+                        setShowTypeDropdown(false)
+                        inputRef.current?.focus()
+                      }}
+                    >
+                      {SEARCH_TYPE_LABELS[type]}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <div className="search-bar-input-box">
           <Search className="search-icon" size={20} />
           <input
