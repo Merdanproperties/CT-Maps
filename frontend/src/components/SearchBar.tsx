@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Search, MapPin, Building2, X, User } from 'lucide-react'
+import { Search, MapPin, Building2, X, User, ChevronDown } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import './SearchBar.css'
@@ -19,15 +19,33 @@ interface SearchBarProps {
   placeholder?: string
 }
 
-export default function SearchBar({ onSelect, onQueryChange, placeholder = "Search address or town..." }: SearchBarProps) {
+export type SearchBarType = 'address' | 'town' | 'owner'
+
+const SEARCH_TYPE_LABELS: Record<SearchBarType, string> = {
+  address: 'Address',
+  town: 'Town',
+  owner: 'Owner',
+}
+
+const SEARCH_TYPE_PLACEHOLDERS: Record<SearchBarType, string> = {
+  address: 'Search by address...',
+  town: 'Search by town or city...',
+  owner: 'Search by owner name...',
+}
+
+export default function SearchBar({ onSelect, onQueryChange, placeholder }: SearchBarProps) {
   const navigate = useNavigate()
+  const [searchType, setSearchType] = useState<SearchBarType>('address')
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [isLoading, setIsLoading] = useState(false)
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const effectivePlaceholder = placeholder ?? SEARCH_TYPE_PLACEHOLDERS[searchType]
 
   // Fetch autocomplete suggestions – show dropdown as user types (Loading then results or No results)
   const fetchSuggestions = useCallback(async (searchQuery: string) => {
@@ -44,7 +62,7 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
     // #endregion
     try {
       const response = await apiClient.get('/api/autocomplete/', {
-        params: { q: searchQuery, limit: 10 }
+        params: { q: searchQuery, limit: 10, search_type: searchType }
       });
       const suggestions = response.data.suggestions || [];
       // #region agent log
@@ -63,7 +81,7 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
     } finally {
       if (typeof setIsLoading === 'function') setIsLoading(false);
     }
-  }, [])
+  }, [searchType])
 
   // Debounced search
   useEffect(() => {
@@ -95,6 +113,7 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
       // Only close when we're confident the click was outside; if ref/contains is unreliable, don't close
       if (clickWasOutside === true) {
         setShowSuggestions(false)
+        setShowTypeDropdown(false)
       }
     }
 
@@ -234,39 +253,82 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder = "Sear
     inputRef.current?.focus()
   }
 
+  const searchTypes: SearchBarType[] = ['address', 'town', 'owner']
+
   return (
     <div className="search-bar" ref={searchRef}>
-      <div className="search-bar-input-wrapper">
-        <Search className="search-icon" size={20} />
-        <input
-          ref={inputRef}
-          type="text"
-          className="search-bar-input"
-          placeholder={placeholder}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            if (onQueryChange) {
-              onQueryChange(e.target.value)
-            }
-          }}
-          onKeyDown={handleKeyDown}
-          onFocus={() => {
-            if (suggestions.length > 0) {
-              setShowSuggestions(true)
-            }
-          }}
-        />
-        {query && (
+      <div className="search-bar-row">
+        {/* Separate dropdown button next to the search bar */}
+        <div className="search-bar-type-dropdown">
           <button
             type="button"
-            className="search-bar-clear"
-            onClick={handleClear}
-            aria-label="Clear search"
+            className="search-bar-type-dropdown-btn"
+            onClick={() => setShowTypeDropdown((open) => !open)}
+            aria-expanded={showTypeDropdown}
+            aria-haspopup="listbox"
+            aria-label="Search by"
           >
-            <X size={16} />
+            <span>{SEARCH_TYPE_LABELS[searchType]}</span>
+            <ChevronDown size={16} className={showTypeDropdown ? 'open' : ''} />
           </button>
-        )}
+          {showTypeDropdown && (
+            <>
+              <div className="search-bar-type-overlay" onClick={() => setShowTypeDropdown(false)} aria-hidden="true" />
+              <div className="search-bar-type-menu" role="listbox">
+                {searchTypes.map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    role="option"
+                    aria-selected={searchType === type}
+                    className={`search-bar-type-option ${searchType === type ? 'selected' : ''}`}
+                    onClick={() => {
+                      setSearchType(type)
+                      setSuggestions([])
+                      setShowSuggestions(false)
+                      setShowTypeDropdown(false)
+                      inputRef.current?.focus()
+                    }}
+                  >
+                    {SEARCH_TYPE_LABELS[type]}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="search-bar-input-box">
+          <Search className="search-icon" size={20} />
+          <input
+            ref={inputRef}
+            type="text"
+            className="search-bar-input"
+            placeholder={effectivePlaceholder}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              if (onQueryChange) {
+                onQueryChange(e.target.value)
+              }
+            }}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              if (suggestions.length > 0) {
+                setShowSuggestions(true)
+              }
+            }}
+          />
+          {query && (
+            <button
+              type="button"
+              className="search-bar-clear"
+              onClick={handleClear}
+              aria-label="Clear search"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {showSuggestions && (

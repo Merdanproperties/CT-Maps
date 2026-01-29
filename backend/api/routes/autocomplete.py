@@ -28,49 +28,54 @@ class AutocompleteResponse(BaseModel):
 async def autocomplete(
     q: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(10, ge=1, le=50, description="Maximum number of suggestions"),
+    search_type: Optional[str] = Query(None, description="Limit to: address, town, owner. Omit for all types (slower)."),
     db: Session = Depends(get_db)
 ):
     """
-    Autocomplete suggestions for addresses and towns.
-    Returns matching addresses and towns based on the search query.
+    Autocomplete suggestions for addresses, towns, and owners.
+    Use search_type=address|town|owner to run only one query (faster). Omit for all.
     """
     suggestions: List[AutocompleteSuggestion] = []
     search_term = f"%{q}%"
-    
-    # Get matching addresses
-    # Use first property's centroid instead of averaging all (more accurate for specific addresses)
-    # This prevents incorrect centers when multiple properties with same address exist in different locations
-    address_subquery = db.query(
-        Property.address,
-        Property.municipality,
-        func.min(Property.id).label('first_property_id'),
-        func.count(Property.id).label('count')
-    ).filter(
-        Property.address.ilike(search_term),
-        Property.address.isnot(None),
-        Property.address != ''
-    ).group_by(
-        Property.address,
-        Property.municipality
-    ).having(
-        func.count(Property.id) > 0
-    ).subquery()
-    
-    address_results = db.query(
-        address_subquery.c.address,
-        address_subquery.c.municipality,
-        address_subquery.c.count,
-        func.ST_Y(func.ST_Centroid(Property.geometry)).label('center_lat'),
-        func.ST_X(func.ST_Centroid(Property.geometry)).label('center_lng')
-    ).join(
-        Property, Property.id == address_subquery.c.first_property_id
-    ).order_by(
-        address_subquery.c.count.desc()
-    ).limit(limit).all()
-    
-    for result in address_results:
-        # Log for debugging Bridgeport vs Torrington
-        log_data = {
+    want_address = search_type is None or search_type == "address"
+    want_town = search_type is None or search_type == "town"
+    want_owner = search_type is None or search_type == "owner"
+
+    # Get matching addresses (only when type is None or address)
+    if want_address:
+        # Use first property's centroid instead of averaging all (more accurate for specific addresses)
+        # This prevents incorrect centers when multiple properties with same address exist in different locations
+        address_subquery = db.query(
+            Property.address,
+            Property.municipality,
+            func.min(Property.id).label('first_property_id'),
+            func.count(Property.id).label('count')
+        ).filter(
+            Property.address.ilike(search_term),
+            Property.address.isnot(None),
+            Property.address != ''
+        ).group_by(
+            Property.address,
+            Property.municipality
+        ).having(
+            func.count(Property.id) > 0
+        ).subquery()
+
+        address_results = db.query(
+            address_subquery.c.address,
+            address_subquery.c.municipality,
+            address_subquery.c.count,
+            func.ST_Y(func.ST_Centroid(Property.geometry)).label('center_lat'),
+            func.ST_X(func.ST_Centroid(Property.geometry)).label('center_lng')
+        ).join(
+            Property, Property.id == address_subquery.c.first_property_id
+        ).order_by(
+            address_subquery.c.count.desc()
+        ).limit(limit).all()
+
+        for result in address_results:
+            # Log for debugging Bridgeport vs Torrington
+            log_data = {
             "location": "autocomplete.py:55",
             "message": "Address autocomplete result",
             "data": {
@@ -85,142 +90,142 @@ async def autocomplete(
             "sessionId": "debug-session",
             "runId": "run1",
             "hypothesisId": "F"
-        }
-        try:
-            log_file = Path("/Users/jacobmermelstein/Desktop/CT Maps/.cursor/debug.log")
-            with open(log_file, "a") as f:
-                f.write(json.dumps(log_data) + "\n")
-        except:
-            pass  # Don't fail if logging fails
-        
-        suggestions.append(AutocompleteSuggestion(
-            type='address',
-            value=result.address,
-            display=f"{result.address}, {result.municipality or 'CT'}" if result.municipality else result.address,
-            count=result.count,
-            center_lat=float(result.center_lat) if result.center_lat else None,
-            center_lng=float(result.center_lng) if result.center_lng else None
-        ))
-    
-    # Get matching towns/municipalities
-    town_results = db.query(
-        Property.municipality,
-        func.count(Property.id).label('count'),
-        func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
-        func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
-    ).filter(
-        Property.municipality.ilike(search_term),
-        Property.municipality.isnot(None),
-        Property.municipality != ''
-    ).group_by(
-        Property.municipality
-    ).order_by(
-        func.count(Property.id).desc()
-    ).limit(limit).all()
-    
-    for result in town_results:
-        suggestions.append(AutocompleteSuggestion(
-            type='town',
-            value=result.municipality,
-            display=f"{result.municipality}, CT ({result.count:,} properties)",
-            count=result.count,
-            center_lat=float(result.center_lat) if result.center_lat else None,
-            center_lng=float(result.center_lng) if result.center_lng else None
-        ))
-    
-    # Get matching owner names
-    owner_name_results = db.query(
-        Property.owner_name,
-        func.count(Property.id).label('count'),
-        func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
-        func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
-    ).filter(
-        Property.owner_name.ilike(search_term),
-        Property.owner_name.isnot(None),
-        Property.owner_name != ''
-    ).group_by(
-        Property.owner_name
-    ).having(
-        func.count(Property.id) > 0
-    ).order_by(
-        func.count(Property.id).desc()
-    ).limit(5).all()
-    
-    for result in owner_name_results:
-        suggestions.append(AutocompleteSuggestion(
-            type='owner',
-            value=result.owner_name,
-            display=f"{result.owner_name} ({result.count} properties)",
-            count=result.count,
-            center_lat=float(result.center_lat) if result.center_lat else None,
-            center_lng=float(result.center_lng) if result.center_lng else None
-        ))
-    
-    # Get matching owner mailing addresses
-    owner_address_results = db.query(
-        Property.owner_address,
-        Property.owner_city,
-        Property.owner_state,
-        func.count(Property.id).label('count'),
-        func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
-        func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
-    ).filter(
-        or_(
-            Property.owner_address.ilike(search_term),
-            func.concat(
-                func.coalesce(Property.owner_address, ''),
-                ', ',
-                func.coalesce(Property.owner_city, ''),
-                ', ',
-                func.coalesce(Property.owner_state, '')
-            ).ilike(search_term)
-        ),
-        Property.owner_address.isnot(None),
-        Property.owner_address != ''
-    ).group_by(
-        Property.owner_address,
-        Property.owner_city,
-        Property.owner_state
-    ).having(
-        func.count(Property.id) > 0
-    ).order_by(
-        func.count(Property.id).desc()
-    ).limit(5).all()
-    
-    for result in owner_address_results:
-        # Build full address string
-        address_parts = [result.owner_address]
-        if result.owner_city:
-            address_parts.append(result.owner_city)
-        if result.owner_state:
-            address_parts.append(result.owner_state)
-        full_address = ', '.join(address_parts)
-        
-        suggestions.append(AutocompleteSuggestion(
-            type='owner_address',
-            value=full_address,
-            display=f"{full_address} ({result.count} properties)",
-            count=result.count,
-            center_lat=float(result.center_lat) if result.center_lat else None,
-            center_lng=float(result.center_lng) if result.center_lng else None
-        ))
-    
-    # Add state suggestions (CT, Connecticut)
-    state_query = q.upper().strip()
-    if state_query in ['CT', 'CONN', 'CONNECTICUT'] or 'connecticut' in q.lower():
-        # Get total count of all properties in CT
-        total_count = db.query(func.count(Property.id)).scalar() or 0
-        if total_count > 0:
-            # CT center coordinates (approximate)
+            }
+            try:
+                log_file = Path("/Users/jacobmermelstein/Desktop/CT Maps/.cursor/debug.log")
+                with open(log_file, "a") as f:
+                    f.write(json.dumps(log_data) + "\n")
+            except:
+                pass  # Don't fail if logging fails
+
             suggestions.append(AutocompleteSuggestion(
-                type='state',
-                value='CT',
-                display=f'Connecticut ({total_count:,} properties)',
-                count=total_count,
-                center_lat=41.6,
-                center_lng=-72.7
+                type='address',
+                value=result.address,
+                display=f"{result.address}, {result.municipality or 'CT'}" if result.municipality else result.address,
+                count=result.count,
+                center_lat=float(result.center_lat) if result.center_lat else None,
+                center_lng=float(result.center_lng) if result.center_lng else None
             ))
-    
+
+    # Get matching towns/municipalities (only when type is None or town)
+    if want_town:
+        town_results = db.query(
+            Property.municipality,
+            func.count(Property.id).label('count'),
+            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
+            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
+        ).filter(
+            Property.municipality.ilike(search_term),
+            Property.municipality.isnot(None),
+            Property.municipality != ''
+        ).group_by(
+            Property.municipality
+        ).order_by(
+            func.count(Property.id).desc()
+        ).limit(limit).all()
+
+        for result in town_results:
+            suggestions.append(AutocompleteSuggestion(
+                type='town',
+                value=result.municipality,
+                display=f"{result.municipality}, CT ({result.count:,} properties)",
+                count=result.count,
+                center_lat=float(result.center_lat) if result.center_lat else None,
+                center_lng=float(result.center_lng) if result.center_lng else None
+            ))
+
+    # Get matching owner names (only when type is None or owner)
+    if want_owner:
+        owner_name_results = db.query(
+            Property.owner_name,
+            func.count(Property.id).label('count'),
+            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
+            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
+        ).filter(
+            Property.owner_name.ilike(search_term),
+            Property.owner_name.isnot(None),
+            Property.owner_name != ''
+        ).group_by(
+            Property.owner_name
+        ).having(
+            func.count(Property.id) > 0
+        ).order_by(
+            func.count(Property.id).desc()
+        ).limit(5).all()
+
+        for result in owner_name_results:
+            suggestions.append(AutocompleteSuggestion(
+                type='owner',
+                value=result.owner_name,
+                display=f"{result.owner_name} ({result.count} properties)",
+                count=result.count,
+                center_lat=float(result.center_lat) if result.center_lat else None,
+                center_lng=float(result.center_lng) if result.center_lng else None
+            ))
+
+        # Get matching owner mailing addresses (same request as owner)
+        owner_address_results = db.query(
+            Property.owner_address,
+            Property.owner_city,
+            Property.owner_state,
+            func.count(Property.id).label('count'),
+            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
+            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
+        ).filter(
+            or_(
+                Property.owner_address.ilike(search_term),
+                func.concat(
+                    func.coalesce(Property.owner_address, ''),
+                    ', ',
+                    func.coalesce(Property.owner_city, ''),
+                    ', ',
+                    func.coalesce(Property.owner_state, '')
+                ).ilike(search_term)
+            ),
+            Property.owner_address.isnot(None),
+            Property.owner_address != ''
+        ).group_by(
+            Property.owner_address,
+            Property.owner_city,
+            Property.owner_state
+        ).having(
+            func.count(Property.id) > 0
+        ).order_by(
+            func.count(Property.id).desc()
+        ).limit(5).all()
+
+        for result in owner_address_results:
+            address_parts = [result.owner_address]
+            if result.owner_city:
+                address_parts.append(result.owner_city)
+            if result.owner_state:
+                address_parts.append(result.owner_state)
+            full_address = ', '.join(address_parts)
+
+            suggestions.append(AutocompleteSuggestion(
+                type='owner_address',
+                value=full_address,
+                display=f"{full_address} ({result.count} properties)",
+                count=result.count,
+                center_lat=float(result.center_lat) if result.center_lat else None,
+                center_lng=float(result.center_lng) if result.center_lng else None
+            ))
+
+    # Add state suggestions (CT, Connecticut) only when no search_type filter (full search)
+    if search_type is None:
+        state_query = q.upper().strip()
+        if state_query in ['CT', 'CONN', 'CONNECTICUT'] or 'connecticut' in q.lower():
+            total_count = db.query(func.count(Property.id)).scalar() or 0
+            if total_count > 0:
+                suggestions.append(AutocompleteSuggestion(
+                    type='state',
+                    value='CT',
+                    display=f'Connecticut ({total_count:,} properties)',
+                    count=total_count,
+                    center_lat=41.6,
+                    center_lng=-72.7
+                ))
+
     # Sort by relevance (exact matches first, then by count)
     def sort_key(s: AutocompleteSuggestion):
         exact_match = s.value.lower().startswith(q.lower()) or s.display.lower().startswith(q.lower())

@@ -50,8 +50,8 @@
 
 .filter-search-section {
   flex: 1;
-  min-width: 200px;
-  max-width: 400px;
+  min-width: 220px;
+  max-width: 640px;
   overflow: visible;
 }
 
@@ -79,11 +79,14 @@
   outline: none;
 }
 
+/* All filter dropdowns pushed right so search bar has maximum room */
 .filter-dropdowns {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
+  margin-left: auto;
+  padding-left: 1rem;
 }
 
 .filter-dropdown {
@@ -93,12 +96,12 @@
 .filter-dropdown-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  gap: 0.35rem;
+  padding: 0.4rem 0.6rem;
   background: #ffffff;
   border: 1px solid #d4d4c4;
   border-radius: 6px;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: #1a1a1a;
   cursor: pointer;
   transition: all 0.2s;

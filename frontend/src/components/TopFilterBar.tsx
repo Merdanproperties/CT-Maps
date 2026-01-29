@@ -201,8 +201,8 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
       return
     }
     
-    // If "Clear" is selected, clear the filter
-    if (value === 'Clear' || value === '') {
+    // If "Clear" is selected (or null/undefined passed from clear-X), clear the filter
+    if (value === 'Clear' || value === '' || value == null) {
       const newFilters = { ...selectedFilters }
       delete newFilters[filterName]
       if (updateState) {
@@ -691,16 +691,25 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
         >
           <span>{displayValue}</span>
           {selectedCount > 0 && multiSelect && (
-            <button
+            <span
+              role="button"
+              tabIndex={0}
               className="clear-selection-btn"
+              title="Clear selection"
               onClick={(e) => {
                 e.stopPropagation()
                 onSelect('Clear')
               }}
-              title="Clear selection"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onSelect('Clear')
+                }
+              }}
             >
               <X size={12} />
-            </button>
+            </span>
           )}
           <ChevronDown size={16} className={isOpen ? 'open' : ''} />
         </button>

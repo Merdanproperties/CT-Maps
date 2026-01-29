@@ -4,20 +4,104 @@
   max-width: 600px;
 }
 
-.search-bar-input-wrapper {
+/* Row: separate dropdown button + input box side by side */
+.search-bar-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+/* Separate dropdown button (like other filter dropdowns) */
+.search-bar-type-dropdown {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.search-bar-type-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  height: 100%;
+  min-height: 42px;
+  background: #ffffff;
+  border: 1px solid #d4d4c4;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  white-space: nowrap;
+}
+
+.search-bar-type-dropdown-btn:hover {
+  border-color: #9ca3af;
+  background: #f9fafb;
+}
+
+.search-bar-type-dropdown-btn .open {
+  transform: rotate(180deg);
+}
+
+.search-bar-type-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+
+.search-bar-type-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  min-width: 100%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.search-bar-type-option {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: none;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.search-bar-type-option:hover {
+  background: #f3f4f6;
+}
+
+.search-bar-type-option.selected {
+  background: #eef2ff;
+  color: #667eea;
+  font-weight: 500;
+}
+
+/* Input box (search field only) */
+.search-bar-input-box {
   position: relative;
   display: flex;
   align-items: center;
-  background: white;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
+  flex: 1;
+  min-width: 0;
   padding: 0.5rem 0.75rem;
+  background: white;
+  border: 1px solid #d4d4c4;
+  border-radius: 6px;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.search-bar-input-wrapper:focus-within {
+.search-bar-input-box:focus-within {
   border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
 }
 
 .search-icon {
