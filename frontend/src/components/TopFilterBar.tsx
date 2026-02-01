@@ -49,22 +49,14 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
 
   const { data: towns = [], isLoading: loadingTowns, isError: townsError, error: townsErr } = useQuery({
     queryKey: ['towns'],
-    queryFn: async () => {
-      console.log('🌐 [API] getTowns called')
-      const result = await propertyApi.getTowns()
-      console.log('🌐 [API] getTowns result:', result?.length ?? 0, 'towns')
-      return result
-    },
+    queryFn: () => propertyApi.getTowns(),
     staleTime: OPTIONS_STALE_MS,
   })
   const { data: unitTypeOptions = [], isLoading: loadingUnitTypes } = useQuery({
     queryKey: ['unitTypes', filtersForOptions],
     queryFn: async () => {
-      console.log('🌐 [API] getUnitTypeOptions called', filtersForOptions)
       const r = await propertyApi.getUnitTypeOptions(filtersForOptions)
-      const list = r?.unit_types ?? []
-      console.log('🌐 [API] getUnitTypeOptions result:', list.length, 'options')
-      return list
+      return r?.unit_types ?? []
     },
     staleTime: OPTIONS_STALE_MS,
     enabled: unitTypeDropdownOpen,
@@ -72,34 +64,21 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
   const { data: zoningOptions = [], isLoading: loadingZoning } = useQuery({
     queryKey: ['zoning', filtersForOptions],
     queryFn: async () => {
-      console.log('🌐 [API] getZoningOptions called', filtersForOptions)
       const r = await propertyApi.getZoningOptions(filtersForOptions)
-      const list = r?.zoning_codes ?? []
-      console.log('🌐 [API] getZoningOptions result:', list.length, 'options')
-      return list
+      return r?.zoning_codes ?? []
     },
     staleTime: OPTIONS_STALE_MS,
     enabled: zoningDropdownOpen,
   })
   const { data: ownerCities = [], isLoading: loadingOwnerCities } = useQuery({
     queryKey: ['ownerCities', filtersForOptions],
-    queryFn: async () => {
-      console.log('🌐 [API] getOwnerCities called', filtersForOptions)
-      const result = await propertyApi.getOwnerCities(filtersForOptions)
-      console.log('🌐 [API] getOwnerCities result:', result?.length ?? 0, 'cities')
-      return result
-    },
+    queryFn: () => propertyApi.getOwnerCities(filtersForOptions),
     staleTime: OPTIONS_STALE_MS,
     enabled: ownerCityDropdownOpen,
   })
   const { data: ownerStates = [], isLoading: loadingOwnerStates } = useQuery({
     queryKey: ['ownerStates', filtersForOptions],
-    queryFn: async () => {
-      console.log('🌐 [API] getOwnerStates called', filtersForOptions)
-      const result = await propertyApi.getOwnerStates(filtersForOptions)
-      console.log('🌐 [API] getOwnerStates result:', result?.length ?? 0, 'states')
-      return result
-    },
+    queryFn: () => propertyApi.getOwnerStates(filtersForOptions),
     staleTime: OPTIONS_STALE_MS,
   })
   // #region agent log

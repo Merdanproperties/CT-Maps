@@ -982,20 +982,6 @@ export default function MapView() {
   }, [shouldShowList, hasSidebarContent, isSidebarVisible, propertiesToShow.length, data?.total, searchQuery, filterParams?.owner_address, showPropertyList, sidebarCollapsed]);
   // #endregion
 
-  // Debug: Log when data changes
-  useEffect(() => {
-    console.log('MapView state:', {
-      filterParams,
-      searchQuery,
-      filterType,
-      showPropertyList,
-      shouldShowList,
-      dataTotal: data?.total,
-      propertiesCount: propertiesToShow.length,
-      isLoading
-    })
-  }, [filterParams, searchQuery, filterType, showPropertyList, shouldShowList, data?.total, propertiesToShow.length, isLoading])
-
   // Scroll to top when properties change
   useEffect(() => {
     if (scrollContainerRef.current && propertiesToShow.length > 0 && shouldShowList) {
@@ -1025,19 +1011,13 @@ export default function MapView() {
       <TopFilterBar 
         onFilterChange={handleFilterChange}
         onSearchChange={(query) => {
-          console.log('🔍 SearchBar query changed:', query)
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:onSearchChange',message:'Search bar query change',data:{queryLen:query?.length,queryTrimmed:query?.trim()?.slice(0,40),willSetSearch:!!(query && query.trim().length > 0)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2,H3'})}).catch(()=>{});
-          // #endregion
           // When user types in search bar, update searchQuery (normalized) and open sidebar (keep town filter so search is scoped to selected town(s))
           const normalized = normalizeSearchQuery(query ?? '')
           if (normalized.length > 0) {
-            console.log('✅ Setting searchQuery to:', normalized)
             setSearchQuery(normalized)
             setShowPropertyList(true)
             setSidebarCollapsed(false) // Open sidebar as user types
           } else {
-            console.log('❌ Clearing searchQuery')
             setSearchQuery('')
           }
         }}
