@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Search, MapPin, Building2, X, User, ChevronDown } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
+import { normalizeSearchQuery } from '../utils/searchUtils'
 import './SearchBar.css'
 
 interface AutocompleteSuggestion {
@@ -22,6 +23,8 @@ interface SearchBarProps {
   placeholder?: string
   /** Single bar for address+town or owner only; no dropdown. */
   searchMode?: SearchBarMode
+  /** Scope autocomplete to these town(s); comma-separated string or array. When set, dropdown shows only results in selected town(s). */
+  municipality?: string | string[] | null
 }
 
 export type SearchBarType = 'address' | 'town' | 'owner'
@@ -49,7 +52,7 @@ const MODE_SEARCH_TYPE: Record<SearchBarMode, string> = {
   owner: 'owner',
 }
 
-export default function SearchBar({ onSelect, onQueryChange, placeholder, searchMode }: SearchBarProps) {
+export default function SearchBar({ onSelect, onQueryChange, placeholder, searchMode, municipality }: SearchBarProps) {
   const navigate = useNavigate()
   const [searchType, setSearchType] = useState<SearchBarType>('address')
   const [query, setQuery] = useState('')
@@ -64,9 +67,18 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
   const effectiveSearchType = searchMode != null ? MODE_SEARCH_TYPE[searchMode] : searchType
   const effectivePlaceholder = placeholder ?? (searchMode != null ? MODE_PLACEHOLDERS[searchMode] : SEARCH_TYPE_PLACEHOLDERS[searchType])
 
+  // Scope autocomplete to selected town(s): normalize to comma-separated string for API
+  const municipalityParam =
+    municipality == null
+      ? undefined
+      : Array.isArray(municipality)
+        ? municipality.filter(Boolean).join(',').trim() || undefined
+        : String(municipality).trim() || undefined
+
   // Fetch autocomplete suggestions – show dropdown as user types (Loading then results or No results)
-  const fetchSuggestions = useCallback(async (searchQuery: string) => {
-    if (searchQuery.length < 2) {
+  const fetchSuggestions = useCallback(async (searchQuery: string, signal?: AbortSignal) => {
+    const normalized = normalizeSearchQuery(searchQuery)
+    if (normalized.length < 2) {
       setSuggestions([])
       setShowSuggestions(false)
       return
@@ -79,8 +91,11 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
     // #endregion
     try {
       const apiSearchType = searchMode != null ? MODE_SEARCH_TYPE[searchMode] : searchType
+      const params: Record<string, string | number> = { q: normalized, limit: 10, search_type: apiSearchType }
+      if (municipalityParam) params.municipality = municipalityParam
       const response = await apiClient.get('/api/autocomplete/', {
-        params: { q: searchQuery, limit: 10, search_type: apiSearchType }
+        params,
+        signal,
       });
       const suggestions = response.data.suggestions || [];
       // #region agent log
@@ -89,7 +104,8 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
       setSuggestions(suggestions);
       setShowSuggestions(true) // Keep dropdown open to show results or "No results found"
       setSelectedIndex(-1)
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') return
       console.error('Autocomplete error:', error);
       // #region agent log
       (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:52',message:'Autocomplete error',data:{searchQuery,error:error instanceof Error ? error.message : String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{}));
@@ -99,20 +115,24 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
     } finally {
       if (typeof setIsLoading === 'function') setIsLoading(false);
     }
-  }, [searchMode, searchType])
+  }, [searchMode, searchType, municipalityParam])
 
-  // Debounced search
+  // Debounced search; cancel in-flight request when query changes
   useEffect(() => {
+    const controller = new AbortController()
     const timer = setTimeout(() => {
       if (query) {
-        fetchSuggestions(query)
+        fetchSuggestions(query, controller.signal)
       } else {
         setSuggestions([])
         setShowSuggestions(false)
       }
     }, 300)
 
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
   }, [query, fetchSuggestions])
 
   // Close suggestions only when we're sure the click was outside the search bar (including dropdown)

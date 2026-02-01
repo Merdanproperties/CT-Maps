@@ -4,12 +4,14 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { propertyApi, Property, analyticsApi } from '../api/client'
 import { usePropertyQuery } from '../hooks/usePropertyQuery'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import PropertyCard from '../components/PropertyCard'
 import TopFilterBar from '../components/TopFilterBar'
 import ExportButton from '../components/ExportButton'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { X, ChevronRight, ChevronLeft, PanelRight, PanelLeft, XCircle } from 'lucide-react'
 import { MapProvider } from '../components/map/MapProvider'
+import { normalizeSearchQuery } from '../utils/searchUtils'
 import './MapView.css'
 
 // Fix for default marker icons in React-Leaflet (needed for LeafletMap component)
@@ -30,6 +32,7 @@ export default function MapView() {
   const [filterParams, setFilterParams] = useState<any>({})
   const [showPropertyList, setShowPropertyList] = useState(false)
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 350)
   const [mapBounds, setMapBounds] = useState<{ north: number; south: number; east: number; west: number } | null>(null)
   const [isMapReady, setIsMapReady] = useState(false)
   const [searchEnabled, setSearchEnabled] = useState(false) // Defer bbox search until after options load
@@ -296,7 +299,7 @@ export default function MapView() {
   const { data, isLoading, error, status, fetchStatus } = usePropertyQuery({
     filterType,
     filterParams,
-    searchQuery,
+    searchQuery: debouncedSearchQuery,
     bbox: searchEnabled && !filterParams?.municipality ? bbox : undefined,
     mapBounds: searchEnabled && !filterParams?.municipality ? mapBounds : null,
     center: searchEnabled ? center : undefined,
@@ -686,25 +689,21 @@ export default function MapView() {
       setFilterType(null) // Clear lead type filter when using zoning
     } else if (filter === 'ownerAddress') {
       // Owner mailing address - single text input
-      // When typing, use searchQuery for immediate results (like main search bar)
+      // When typing, use searchQuery for real-time results; preserve town(s) so search stays scoped
       if (value && value !== 'Clear' && value !== null && value !== undefined) {
-        const trimmedValue = value.trim()
-        if (trimmedValue.length > 0) {
+        const normalizedValue = normalizeSearchQuery(String(value))
+        if (normalizedValue.length > 0) {
           // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:ownerAddress',message:'Mailing address filter',data:{trimmedLen:trimmedValue.length,trimmedSlice:trimmedValue.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3,H4'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:ownerAddress',message:'Mailing address filter',data:{trimmedLen:normalizedValue.length,trimmedSlice:normalizedValue.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3,H4'})}).catch(()=>{});
           // #endregion
-          // Use searchQuery for real-time results, but preserve other filters
-          setSearchQuery(trimmedValue)
+          setSearchQuery(normalizedValue)
           setShowPropertyList(true)
           setSidebarCollapsed(false)
-          // Keep other filters active, but clear municipality to avoid conflicts
-          setFilterParams((prev: any) => {
-            const newParams = { ...prev }
-            delete newParams.municipality
-            // Also set owner_address in filterParams for when searchQuery is cleared
-            newParams.owner_address = trimmedValue
-            return newParams
-          })
+          // Preserve municipality (and other filters) so search stays within selected town(s)
+          setFilterParams((prev: any) => ({
+            ...prev,
+            owner_address: normalizedValue,
+          }))
           setFilterType(null)
         } else {
           // Empty string - clear search
@@ -1030,15 +1029,13 @@ export default function MapView() {
           // #region agent log
           fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:onSearchChange',message:'Search bar query change',data:{queryLen:query?.length,queryTrimmed:query?.trim()?.slice(0,40),willSetSearch:!!(query && query.trim().length > 0)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2,H3'})}).catch(()=>{});
           // #endregion
-          // When user types in search bar, update searchQuery and open sidebar
-          if (query && query.trim().length > 0) {
-            console.log('✅ Setting searchQuery to:', query.trim())
-            setSearchQuery(query.trim())
+          // When user types in search bar, update searchQuery (normalized) and open sidebar (keep town filter so search is scoped to selected town(s))
+          const normalized = normalizeSearchQuery(query ?? '')
+          if (normalized.length > 0) {
+            console.log('✅ Setting searchQuery to:', normalized)
+            setSearchQuery(normalized)
             setShowPropertyList(true)
             setSidebarCollapsed(false) // Open sidebar as user types
-            // Clear municipality filter when typing
-            setFilterParams({})
-            setFilterType(null)
           } else {
             console.log('❌ Clearing searchQuery')
             setSearchQuery('')

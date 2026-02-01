@@ -11,7 +11,8 @@ interface TopFilterBarProps {
   onFilterChange?: (filter: string, value: any) => void
   onSearchChange?: (query: string) => void
   onClearAllFilters?: () => void
-  municipality?: string | null
+  /** Selected town(s); string or array for multi-select. Used to scope search bar autocomplete. */
+  municipality?: string | string[] | null
   filterParams?: Record<string, any>
   sidebarOpen?: boolean
   onSidebarToggle?: () => void
@@ -19,26 +20,33 @@ interface TopFilterBarProps {
 
 export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAllFilters, municipality, filterParams, sidebarOpen, onSidebarToggle }: TopFilterBarProps) {
   const [selectedFilters, setSelectedFilters] = useState<Record<string, any>>({})
+  // Lazy-load large option lists only when dropdown is opened (reduces startup cost)
+  const [unitTypeDropdownOpen, setUnitTypeDropdownOpen] = useState(false)
+  const [zoningDropdownOpen, setZoningDropdownOpen] = useState(false)
+  const [ownerCityDropdownOpen, setOwnerCityDropdownOpen] = useState(false)
   const getFirstValue = (value: any): string | undefined => {
     if (!value) return undefined
     return Array.isArray(value) ? value[0] : value
   }
-  const filtersForOptions = useMemo(() => ({
-    municipality: municipality || undefined,
-    unitType: getFirstValue(selectedFilters.unitType),
-    zoning: getFirstValue(selectedFilters.zoning),
-    propertyAge: getFirstValue(selectedFilters.propertyAge),
-    timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
-    annualTax: getFirstValue(selectedFilters.annualTax),
-    ownerCity: getFirstValue(selectedFilters.ownerCity),
-    ownerState: getFirstValue(selectedFilters.ownerState),
-  }), [municipality, selectedFilters.unitType, selectedFilters.zoning, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerCity, selectedFilters.ownerState])
+  const filtersForOptions = useMemo(() => {
+    const municipalityStr =
+      municipality == null
+        ? undefined
+        : Array.isArray(municipality)
+          ? municipality.filter(Boolean).join(',').trim() || undefined
+          : String(municipality).trim() || undefined
+    return {
+      municipality: municipalityStr,
+      unitType: getFirstValue(selectedFilters.unitType),
+      zoning: getFirstValue(selectedFilters.zoning),
+      propertyAge: getFirstValue(selectedFilters.propertyAge),
+      timeSinceSale: getFirstValue(selectedFilters.timeSinceSale),
+      annualTax: getFirstValue(selectedFilters.annualTax),
+      ownerCity: getFirstValue(selectedFilters.ownerCity),
+      ownerState: getFirstValue(selectedFilters.ownerState),
+    }
+  }, [municipality, selectedFilters.unitType, selectedFilters.zoning, selectedFilters.propertyAge, selectedFilters.timeSinceSale, selectedFilters.annualTax, selectedFilters.ownerCity, selectedFilters.ownerState])
 
-  // #region agent log
-  useEffect(() => {
-    console.log('📊 TopFilterBar mounted, options APIs will run (towns, unitTypes, zoning, ownerCities, ownerStates)')
-  }, [])
-  // #endregion
   const { data: towns = [], isLoading: loadingTowns, isError: townsError, error: townsErr } = useQuery({
     queryKey: ['towns'],
     queryFn: async () => {
@@ -59,6 +67,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
       return list
     },
     staleTime: OPTIONS_STALE_MS,
+    enabled: unitTypeDropdownOpen,
   })
   const { data: zoningOptions = [], isLoading: loadingZoning } = useQuery({
     queryKey: ['zoning', filtersForOptions],
@@ -70,6 +79,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
       return list
     },
     staleTime: OPTIONS_STALE_MS,
+    enabled: zoningDropdownOpen,
   })
   const { data: ownerCities = [], isLoading: loadingOwnerCities } = useQuery({
     queryKey: ['ownerCities', filtersForOptions],
@@ -80,6 +90,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
       return result
     },
     staleTime: OPTIONS_STALE_MS,
+    enabled: ownerCityDropdownOpen,
   })
   const { data: ownerStates = [], isLoading: loadingOwnerStates } = useQuery({
     queryKey: ['ownerStates', filtersForOptions],
@@ -278,23 +289,25 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
           <div className="logo-subtitle">PROPERTY GROUP</div>
         </div>
         
-        {/* Main search: address + town in one bar */}
+        {/* Main search: address + town in one bar (scoped to selected town(s) when set) */}
         <div className="filter-search-section">
           <div className="search-with-chip">
             <SearchBar
               searchMode="address_town"
               placeholder="Address or town..."
               onQueryChange={onSearchChange}
+              municipality={municipality ?? undefined}
             />
           </div>
         </div>
-        {/* Owner search: separate bar for owner name */}
+        {/* Owner search: separate bar for owner name (scoped to selected town(s) when set) */}
         <div className="filter-search-owner">
           <div className="search-with-chip">
             <SearchBar
               searchMode="owner"
               placeholder="Search by owner..."
               onQueryChange={onSearchChange}
+              municipality={municipality ?? undefined}
             />
           </div>
         </div>
@@ -329,7 +342,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             multiSelect={true}
           />
           
-          {/* Unit Type Filter - Dynamic */}
+          {/* Unit Type Filter - Dynamic (lazy-loaded when dropdown opens) */}
           <FilterDropdown
             label="Unit Type"
             options={loadingUnitTypes 
@@ -350,9 +363,10 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             selected={selectedFilters.unitType}
             disabled={loadingUnitTypes}
             multiSelect={true}
+            onOpenChange={setUnitTypeDropdownOpen}
           />
           
-          {/* Zoning Filter - Dynamic */}
+          {/* Zoning Filter - Dynamic (lazy-loaded when dropdown opens) */}
           <FilterDropdown
             label="Zoning"
             options={loadingZoning ? ['Loading...'] : ['Clear', ...zoningOptions]}
@@ -360,6 +374,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             selected={selectedFilters.zoning}
             disabled={loadingZoning}
             multiSelect={true}
+            onOpenChange={setZoningDropdownOpen}
           />
           
           {/* Property Age Filter - Updated options */}
@@ -436,7 +451,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             multiSelect={true}
           />
           
-          {/* Owner Mailing City Filter */}
+          {/* Owner Mailing City Filter (lazy-loaded when dropdown opens) */}
           <FilterDropdown
             label="Owner Mailing City"
             options={loadingOwnerCities ? ['Loading...'] : ['Clear', ...ownerCities]}
@@ -444,6 +459,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             selected={selectedFilters.ownerCity}
             disabled={loadingOwnerCities}
             multiSelect={true}
+            onOpenChange={setOwnerCityDropdownOpen}
           />
           
           {/* Owner Mailing State Filter */}
@@ -504,10 +520,13 @@ interface FilterDropdownProps {
   isTextInput?: boolean
   placeholder?: string
   selectedFilters?: Record<string, any>
-  municipality?: string | null
+  /** Scope autocomplete to these town(s); string or array for multi-select. */
+  municipality?: string | string[] | null
+  /** Called when dropdown open state changes (for lazy-loading options) */
+  onOpenChange?: (open: boolean) => void
 }
 
-function FilterDropdown({ label, options, onSelect, selected, disabled, multiSelect = false, isTextInput = false, placeholder, selectedFilters = {}, municipality }: FilterDropdownProps) {
+function FilterDropdown({ label, options, onSelect, selected, disabled, multiSelect = false, isTextInput = false, placeholder, selectedFilters = {}, municipality, onOpenChange }: FilterDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [textInputValue, setTextInputValue] = useState('')
@@ -553,14 +572,15 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
     }
   }, [selected, isTextInput])
 
-  // Focus search input when dropdown opens
+  // Focus search input when dropdown opens; notify parent for lazy-loading
   useEffect(() => {
+    onOpenChange?.(isOpen)
     if (isOpen && searchInputRef.current && !isTextInput) {
       searchInputRef.current.focus()
     } else if (!isOpen) {
       setSearchQuery('') // Clear search when dropdown closes
     }
-  }, [isOpen, isTextInput])
+  }, [isOpen, isTextInput, onOpenChange])
 
   const handleOptionClick = (option: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -600,7 +620,19 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
         }
         setIsLoadingAutocomplete(true)
         try {
-          const { suggestions } = await propertyApi.getAutocompleteSuggestions(textInputValue, 'owner_address', 10)
+          const municipalityParam =
+            municipality == null
+              ? undefined
+              : Array.isArray(municipality)
+                ? municipality.filter(Boolean).join(',').trim() || undefined
+                : String(municipality).trim() || undefined
+          const { suggestions } = await propertyApi.getAutocompleteSuggestions(
+            textInputValue,
+            'owner_address',
+            10,
+            undefined,
+            municipalityParam
+          )
           setRichAutocompleteSuggestions(suggestions)
           setShowAutocomplete(suggestions.length > 0 && textInputValue.length > 0)
         } catch (error) {
@@ -618,8 +650,14 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
         }
         setIsLoadingAutocomplete(true)
         try {
+          const municipalityStr =
+            municipality == null
+              ? undefined
+              : Array.isArray(municipality)
+                ? municipality.filter(Boolean).join(',').trim() || undefined
+                : String(municipality).trim() || undefined
           const filters = {
-            municipality: municipality || undefined,
+            municipality: municipalityStr,
             unitType: getFirstValue(selectedFilters.unitType),
             zoning: getFirstValue(selectedFilters.zoning),
             propertyAge: getFirstValue(selectedFilters.propertyAge),

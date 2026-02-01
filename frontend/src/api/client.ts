@@ -139,7 +139,16 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const config = error.config as (InternalAxiosRequestConfig & { __retryCount?: number }) | undefined
     if (!config) return Promise.reject(error)
-    
+
+    // Aborted/cancelled requests (e.g. user typed again before previous request finished) – don't log as error
+    const isCancelled =
+      axios.isCancel(error) ||
+      error.message === 'canceled' ||
+      (error as any).code === 'ERR_CANCELED'
+    if (isCancelled) {
+      return Promise.reject(error)
+    }
+
     // Handle blob error responses (might contain error JSON)
     if (config?.responseType === 'blob' && error.response?.data) {
       try {
@@ -280,37 +289,40 @@ export const propertyApi = {
     return response.data
   },
 
-  search: async (params: {
-    q?: string
-    municipality?: string
-    min_value?: number
-    max_value?: number
-    property_type?: string
-    min_lot_size?: number
-    max_lot_size?: number
-    bbox?: string
-    unit_type?: string
-    zoning?: string
-    year_built_min?: number
-    year_built_max?: number
-    has_phone?: boolean
-    has_email?: boolean
-    has_contact?: string
-    sales_history?: string
-    days_since_sale_min?: number
-    days_since_sale_max?: number
-    time_since_sale?: string
-    tax_amount_min?: number
-    tax_amount_max?: number
-    annual_tax?: string
-    page?: number
-    page_size?: number
-  }): Promise<SearchResponse> => {
-    const response = await apiClient.get('/api/search/', { params })
+  search: async (
+    params: {
+      q?: string
+      municipality?: string
+      min_value?: number
+      max_value?: number
+      property_type?: string
+      min_lot_size?: number
+      max_lot_size?: number
+      bbox?: string
+      unit_type?: string
+      zoning?: string
+      year_built_min?: number
+      year_built_max?: number
+      has_phone?: boolean
+      has_email?: boolean
+      has_contact?: string
+      sales_history?: string
+      days_since_sale_min?: number
+      days_since_sale_max?: number
+      time_since_sale?: string
+      tax_amount_min?: number
+      tax_amount_max?: number
+      annual_tax?: string
+      page?: number
+      page_size?: number
+    },
+    signal?: AbortSignal
+  ): Promise<SearchResponse> => {
+    const response = await apiClient.get('/api/search/', { params, signal })
     return response.data
   },
 
-  getMunicipalityBounds: async (municipality: string): Promise<{
+  getMunicipalityBounds: async (municipality: string, signal?: AbortSignal): Promise<{
     municipality: string
     min_lng: number
     min_lat: number
@@ -320,55 +332,47 @@ export const propertyApi = {
     center_lng: number
     bbox: string
   }> => {
-    const response = await apiClient.get(`/api/search/municipality/${encodeURIComponent(municipality)}/bounds`)
+    const response = await apiClient.get(`/api/search/municipality/${encodeURIComponent(municipality)}/bounds`, { signal })
     return response.data
   },
 
-  getHighEquity: async (params: {
-    min_equity?: number
-    min_equity_percent?: number
-    page?: number
-    page_size?: number
-  }): Promise<FilterResponse> => {
-    const response = await apiClient.get('/api/filters/high-equity', { params })
+  getHighEquity: async (
+    params: { min_equity?: number; min_equity_percent?: number; page?: number; page_size?: number },
+    signal?: AbortSignal
+  ): Promise<FilterResponse> => {
+    const response = await apiClient.get('/api/filters/high-equity', { params, signal })
     return response.data
   },
 
-  getVacant: async (params: {
-    include_lots?: boolean
-    include_structures?: boolean
-    page?: number
-    page_size?: number
-  }): Promise<FilterResponse> => {
-    const response = await apiClient.get('/api/filters/vacant', { params })
+  getVacant: async (
+    params: { include_lots?: boolean; include_structures?: boolean; page?: number; page_size?: number },
+    signal?: AbortSignal
+  ): Promise<FilterResponse> => {
+    const response = await apiClient.get('/api/filters/vacant', { params, signal })
     return response.data
   },
 
-  getAbsenteeOwners: async (params: {
-    page?: number
-    page_size?: number
-  }): Promise<FilterResponse> => {
-    const response = await apiClient.get('/api/filters/absentee-owners', { params })
+  getAbsenteeOwners: async (
+    params: { page?: number; page_size?: number },
+    signal?: AbortSignal
+  ): Promise<FilterResponse> => {
+    const response = await apiClient.get('/api/filters/absentee-owners', { params, signal })
     return response.data
   },
 
-  getRecentlySold: async (params: {
-    days?: number
-    min_price?: number
-    max_price?: number
-    page?: number
-    page_size?: number
-  }): Promise<FilterResponse> => {
-    const response = await apiClient.get('/api/filters/recently-sold', { params })
+  getRecentlySold: async (
+    params: { days?: number; min_price?: number; max_price?: number; page?: number; page_size?: number },
+    signal?: AbortSignal
+  ): Promise<FilterResponse> => {
+    const response = await apiClient.get('/api/filters/recently-sold', { params, signal })
     return response.data
   },
 
-  getLowEquity: async (params: {
-    max_equity?: number
-    page?: number
-    page_size?: number
-  }): Promise<FilterResponse> => {
-    const response = await apiClient.get('/api/filters/low-equity', { params })
+  getLowEquity: async (
+    params: { max_equity?: number; page?: number; page_size?: number },
+    signal?: AbortSignal
+  ): Promise<FilterResponse> => {
+    const response = await apiClient.get('/api/filters/low-equity', { params, signal })
     return response.data
   },
 
@@ -490,15 +494,21 @@ export const propertyApi = {
     return response.data
   },
 
-  /** Main autocomplete with rich suggestions (type, value, display, count) for SearchBar-style dropdown */
+  /** Main autocomplete with rich suggestions (type, value, display, count) for SearchBar-style dropdown.
+   * municipality: optional comma-separated towns to scope suggestions to selected town(s). */
   getAutocompleteSuggestions: async (
     q: string,
     searchType: string,
-    limit: number = 10
+    limit: number = 10,
+    signal?: AbortSignal,
+    municipality?: string | null
   ): Promise<{ suggestions: Array<{ type: string; value: string; display: string; count?: number }> }> => {
     if (!q || q.length < 2) return { suggestions: [] }
+    const params: Record<string, string | number> = { q, limit, search_type: searchType }
+    if (municipality && municipality.trim()) params.municipality = municipality.trim()
     const response = await apiClient.get('/api/autocomplete/', {
-      params: { q, limit, search_type: searchType }
+      params,
+      signal,
     })
     return { suggestions: response.data?.suggestions ?? [] }
   },

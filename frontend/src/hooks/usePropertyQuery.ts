@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { propertyApi, Property, FilterResponse } from '../api/client'
+import { normalizeSearchQuery } from '../utils/searchUtils'
 
 export interface PropertyQueryParams {
   filterType?: string | null
@@ -44,9 +45,13 @@ interface PropertyQueryResult {
 }
 
 /**
- * Determines which API call to make based on the query parameters
+ * Determines which API call to make based on the query parameters.
+ * Pass signal to cancel in-flight requests when the query is superseded.
  */
-async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQueryResult> {
+async function fetchProperties(
+  params: PropertyQueryParams,
+  signal?: AbortSignal
+): Promise<PropertyQueryResult> {
   const { filterType, filterParams = {}, searchQuery, bbox } = params
 
   // Build base search params
@@ -111,7 +116,12 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
     const municipalityParam = Array.isArray(filterParams.municipality) 
       ? filterParams.municipality.join(',') 
       : filterParams.municipality
-    const searchParams = buildSearchParams({ municipality: municipalityParam })
+    const baseParams: any = { municipality: municipalityParam }
+    if (searchQuery) {
+      const normalizedQ = normalizeSearchQuery(searchQuery)
+      if (normalizedQ.length > 0) baseParams.q = normalizedQ
+    }
+    const searchParams = buildSearchParams(baseParams)
     // Explicitly ensure bbox is not included (delete even if it doesn't exist)
     delete searchParams.bbox
     
@@ -123,13 +133,16 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
       }
     }
     
-    return await propertyApi.search(cleanParams)
+    return await propertyApi.search(cleanParams, signal)
   }
 
   // Priority 2: Search query
-  if (searchQuery && searchQuery.trim().length > 0) {
-    const searchParams = buildSearchParams({ q: searchQuery.trim() })
-    return await propertyApi.search(searchParams)
+  if (searchQuery) {
+    const normalizedQ = normalizeSearchQuery(searchQuery)
+    if (normalizedQ.length > 0) {
+      const searchParams = buildSearchParams({ q: normalizedQ })
+      return await propertyApi.search(searchParams, signal)
+    }
   }
 
   // Priority 3: Filter type (lead types)
@@ -138,24 +151,24 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
     let filterResult: FilterResponse
     switch (filterType) {
       case 'high-equity':
-        filterResult = await propertyApi.getHighEquity({ ...filterParams, page_size: defaultPageSize })
+        filterResult = await propertyApi.getHighEquity({ ...filterParams, page_size: defaultPageSize }, signal)
         break
       case 'vacant':
-        filterResult = await propertyApi.getVacant({ ...filterParams, page_size: defaultPageSize })
+        filterResult = await propertyApi.getVacant({ ...filterParams, page_size: defaultPageSize }, signal)
         break
       case 'absentee-owners':
-        filterResult = await propertyApi.getAbsenteeOwners({ ...filterParams, page_size: defaultPageSize })
+        filterResult = await propertyApi.getAbsenteeOwners({ ...filterParams, page_size: defaultPageSize }, signal)
         break
       case 'recently-sold':
-        filterResult = await propertyApi.getRecentlySold({ ...filterParams, page_size: defaultPageSize })
+        filterResult = await propertyApi.getRecentlySold({ ...filterParams, page_size: defaultPageSize }, signal)
         break
       case 'low-equity':
-        filterResult = await propertyApi.getLowEquity({ ...filterParams, page_size: defaultPageSize })
+        filterResult = await propertyApi.getLowEquity({ ...filterParams, page_size: defaultPageSize }, signal)
         break
       default:
         // Fallback to bbox search for unknown filter types
         if (bbox) {
-          return await propertyApi.search({ bbox, page_size: 200 })
+          return await propertyApi.search({ bbox, page_size: 200 }, signal)
         }
         throw new Error(`Unknown filter type: ${filterType}`)
     }
@@ -215,12 +228,12 @@ async function fetchProperties(params: PropertyQueryParams): Promise<PropertyQue
       }
     }
     
-    return await propertyApi.search(cleanParams)
+    return await propertyApi.search(cleanParams, signal)
   }
 
   // Priority 5: Default bbox search (show properties in viewport)
   if (bbox) {
-    return await propertyApi.search({ bbox, page_size: 200 })
+    return await propertyApi.search({ bbox, page_size: 200 }, signal)
   }
 
   // No valid query - return empty result
@@ -322,15 +335,18 @@ export function usePropertyQuery(params: PropertyQueryParams) {
           calculatedBbox = undefined
         }
 
-        const result = await fetchProperties({
-          filterType,
-          filterParams,
-          searchQuery,
-          bbox: calculatedBbox,
-          mapBounds: filterParams?.municipality ? null : mapBounds, // Don't pass mapBounds when municipality is set
-          center,
-          zoom,
-        })
+        const result = await fetchProperties(
+          {
+            filterType,
+            filterParams,
+            searchQuery,
+            bbox: calculatedBbox,
+            mapBounds: filterParams?.municipality ? null : mapBounds, // Don't pass mapBounds when municipality is set
+            center,
+            zoom,
+          },
+          signal
+        )
 
         // Check if cancelled after API call
         if (signal?.aborted) {

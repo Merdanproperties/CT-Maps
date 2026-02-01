@@ -29,12 +29,14 @@ async def autocomplete(
     q: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(10, ge=1, le=50, description="Maximum number of suggestions"),
     search_type: Optional[str] = Query(None, description="Limit to: address, town, owner, owner_address, or address_town (address + town only). Omit for all types (slower)."),
+    municipality: Optional[str] = Query(None, description="Filter suggestions to these towns (comma-separated). When set, address/owner suggestions are scoped to selected town(s)."),
     db: Session = Depends(get_db)
 ):
     """
     Autocomplete suggestions for addresses, towns, and owners.
     Use search_type=address|town|owner|address_town to run fewer queries (faster). Omit for all.
     address_town = address and town only (no owner), for a combined main search bar.
+    When municipality is set, address and owner suggestions are limited to those towns.
     """
     suggestions: List[AutocompleteSuggestion] = []
     search_term = f"%{q}%"
@@ -43,19 +45,29 @@ async def autocomplete(
     want_owner = search_type is None or search_type == "owner"
     want_owner_address_only = search_type == "owner_address"
 
+    # Normalize municipality filter: comma-separated list, stripped, lowercased for filtering
+    municipality_filter = None
+    if municipality and str(municipality).strip():
+        municipality_filter = [m.strip().lower() for m in str(municipality).split(",") if m.strip()]
+
     # Get matching addresses (only when type is None or address)
     if want_address:
         # Use first property's centroid instead of averaging all (more accurate for specific addresses)
         # This prevents incorrect centers when multiple properties with same address exist in different locations
+        address_filters = [
+            Property.address.ilike(search_term),
+            Property.address.isnot(None),
+            Property.address != ''
+        ]
+        if municipality_filter:
+            address_filters.append(func.lower(Property.municipality).in_(municipality_filter))
         address_subquery = db.query(
             Property.address,
             Property.municipality,
             func.min(Property.id).label('first_property_id'),
             func.count(Property.id).label('count')
         ).filter(
-            Property.address.ilike(search_term),
-            Property.address.isnot(None),
-            Property.address != ''
+            *address_filters
         ).group_by(
             Property.address,
             Property.municipality
@@ -111,15 +123,20 @@ async def autocomplete(
 
     # Get matching towns/municipalities (only when type is None or town)
     if want_town:
+        town_filters = [
+            Property.municipality.ilike(search_term),
+            Property.municipality.isnot(None),
+            Property.municipality != ''
+        ]
+        if municipality_filter:
+            town_filters.append(func.lower(Property.municipality).in_(municipality_filter))
         town_results = db.query(
             Property.municipality,
             func.count(Property.id).label('count'),
             func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
             func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
         ).filter(
-            Property.municipality.ilike(search_term),
-            Property.municipality.isnot(None),
-            Property.municipality != ''
+            *town_filters
         ).group_by(
             Property.municipality
         ).order_by(
@@ -138,14 +155,7 @@ async def autocomplete(
 
     # Get matching owner mailing addresses only (when search_type=owner_address)
     if want_owner_address_only:
-        owner_address_results = db.query(
-            Property.owner_address,
-            Property.owner_city,
-            Property.owner_state,
-            func.count(Property.id).label('count'),
-            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
-            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
-        ).filter(
+        owner_addr_filters = [
             or_(
                 Property.owner_address.ilike(search_term),
                 func.concat(
@@ -158,6 +168,18 @@ async def autocomplete(
             ),
             Property.owner_address.isnot(None),
             Property.owner_address != ''
+        ]
+        if municipality_filter:
+            owner_addr_filters.append(func.lower(Property.municipality).in_(municipality_filter))
+        owner_address_results = db.query(
+            Property.owner_address,
+            Property.owner_city,
+            Property.owner_state,
+            func.count(Property.id).label('count'),
+            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
+            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
+        ).filter(
+            *owner_addr_filters
         ).group_by(
             Property.owner_address,
             Property.owner_city,
@@ -187,15 +209,20 @@ async def autocomplete(
 
     # Get matching owner names (only when type is None or owner; skip when owner_address only)
     if want_owner and not want_owner_address_only:
+        owner_name_filters = [
+            Property.owner_name.ilike(search_term),
+            Property.owner_name.isnot(None),
+            Property.owner_name != ''
+        ]
+        if municipality_filter:
+            owner_name_filters.append(func.lower(Property.municipality).in_(municipality_filter))
         owner_name_results = db.query(
             Property.owner_name,
             func.count(Property.id).label('count'),
             func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
             func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
         ).filter(
-            Property.owner_name.ilike(search_term),
-            Property.owner_name.isnot(None),
-            Property.owner_name != ''
+            *owner_name_filters
         ).group_by(
             Property.owner_name
         ).having(
@@ -215,14 +242,7 @@ async def autocomplete(
             ))
 
         # Get matching owner mailing addresses (same request as owner)
-        owner_address_results = db.query(
-            Property.owner_address,
-            Property.owner_city,
-            Property.owner_state,
-            func.count(Property.id).label('count'),
-            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
-            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
-        ).filter(
+        owner_addr_filters_owner = [
             or_(
                 Property.owner_address.ilike(search_term),
                 func.concat(
@@ -235,6 +255,18 @@ async def autocomplete(
             ),
             Property.owner_address.isnot(None),
             Property.owner_address != ''
+        ]
+        if municipality_filter:
+            owner_addr_filters_owner.append(func.lower(Property.municipality).in_(municipality_filter))
+        owner_address_results = db.query(
+            Property.owner_address,
+            Property.owner_city,
+            Property.owner_state,
+            func.count(Property.id).label('count'),
+            func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
+            func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
+        ).filter(
+            *owner_addr_filters_owner
         ).group_by(
             Property.owner_address,
             Property.owner_city,
