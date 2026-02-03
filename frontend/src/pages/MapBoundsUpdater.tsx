@@ -43,7 +43,7 @@ export function MapBoundsUpdater({ onBoundsChange }: MapBoundsUpdaterProps) {
             west: bounds.getWest(),
           })
         }
-      }, 1000) // 1 second debounce
+      }, 250) // 250ms debounce for viewport fetch (plan: moveend throttle)
     }
 
     // Only set up listeners once

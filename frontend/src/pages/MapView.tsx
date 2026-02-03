@@ -64,8 +64,6 @@ export default function MapView() {
   // Memoize the bounds change handler
   // When municipality is set, don't update mapBounds to prevent bbox from interfering with municipality filter
   const handleBoundsChange = useCallback((bounds: { north: number; south: number; east: number; west: number }) => {
-    // Only update mapBounds if municipality is NOT set AND we're not currently fetching municipality bounds
-    // This prevents map movements from affecting queries when municipality filter is active
     if (!filterParams?.municipality && !fetchingMunicipalityBoundsRef.current) {
       setMapBounds(bounds)
     }
@@ -294,16 +292,23 @@ export default function MapView() {
     return bboxVal
   }, [mapBounds, center, zoom, filterParams?.municipality])
 
+  // Viewport fetch: only when zoomed in, map ready, and no active search (strict separation)
+  const viewportFetchEnabled =
+    isMapReady &&
+    zoom >= 15 &&
+    !filterParams?.municipality &&
+    !(debouncedSearchQuery?.trim() ?? '') &&
+    !filterType
+
   // Use the new simplified property query hook
-  // When municipality is set, explicitly pass undefined for bbox to ensure it's never used
   const { data, isLoading, error, status, fetchStatus } = usePropertyQuery({
     filterType,
     filterParams,
     searchQuery: debouncedSearchQuery,
-    bbox: searchEnabled && !filterParams?.municipality ? bbox : undefined,
-    mapBounds: searchEnabled && !filterParams?.municipality ? mapBounds : null,
-    center: searchEnabled ? center : undefined,
-    zoom: searchEnabled ? zoom : undefined,
+    bbox: viewportFetchEnabled ? bbox : undefined,
+    mapBounds: viewportFetchEnabled ? mapBounds : null,
+    center: viewportFetchEnabled ? center : undefined,
+    zoom: viewportFetchEnabled ? zoom : undefined,
   })
 
   // Show property list when we have search criteria
@@ -323,20 +328,18 @@ export default function MapView() {
     }
   }, [data, filterType])
 
-  // Ensure selected property is included in properties array
+  // Ensure selected property is in the list and use its full geometry (polygon) when available.
+  // When user clicks a viewport circle we fetch full property; use that for the map so the polygon draws.
   const properties = useMemo(() => {
     const baseProperties = data?.properties || []
-    
-    // If we have a selected property, make sure it's in the list
-    if (selectedProperty) {
-      const isInList = baseProperties.some(p => p.id === selectedProperty.id)
-      if (!isInList) {
-        // Add selected property to the list so it shows on the map
-        return [selectedProperty, ...baseProperties]
-      }
+    if (!selectedProperty) return baseProperties
+
+    const isInList = baseProperties.some(p => p.id === selectedProperty.id)
+    if (!isInList) {
+      return [selectedProperty, ...baseProperties]
     }
-    
-    return baseProperties
+    // Replace the list entry with selectedProperty so full polygon is used (not the centroid Point)
+    return baseProperties.map((p) => (p.id === selectedProperty.id ? selectedProperty : p))
   }, [data?.properties, selectedProperty])
 
   // Extract street number from address
@@ -379,17 +382,23 @@ export default function MapView() {
 
   const handlePropertyClick = useCallback((property: Property) => {
     console.log('🖱️ Property clicked:', property.id, property.address)
-    setSelectedProperty(property)
-    // Hide property list when clicking on a specific property
     setShowPropertyList(false)
     setSearchQuery('')
-    
-    // Center map on clicked property
+    setSelectedProperty(property)
+
+    // If viewport centroid (Point), fetch full property so map can draw polygon and sidebar has full details
     const geom = property.geometry?.geometry
+    const isCentroidOnly = geom?.type === 'Point'
+    if (isCentroidOnly) {
+      propertyApi.getProperty(property.id).then((full) => {
+        setSelectedProperty(full)
+      }).catch(() => {})
+    }
+
+    // Center map on clicked property
     if (geom) {
       const centroid = getCentroid(geom)
       if (centroid) {
-        console.log('📍 Centering on clicked property:', centroid)
         setCenter(centroid)
         setZoom(18)
       } else if (geom.type === 'Polygon' && geom.coordinates?.[0]?.[0]) {
@@ -1214,6 +1223,10 @@ export default function MapView() {
         properties={properties}
         navigate={navigate}
       />
+
+      <div className="map-zoom-overlay" aria-hidden>
+        Zoom: {Math.round(zoom)}
+      </div>
 
       {isLoading && !error && (
         <div className="loading-overlay">

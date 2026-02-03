@@ -233,6 +233,18 @@ export function LeafletMap(props: MapComponentProps) {
     }
   }, [props.properties, props.onPropertyClick, geoJsonStyle, setCenter, setZoom])
 
+  // Render viewport centroids (Point) as circles; Polygon/MultiPolygon use default path rendering (selected property)
+  const pointToLayer = useCallback((feature: GeoJSON.Feature, latlng: L.LatLng) => {
+    const style = geoJsonStyle()
+    return L.circleMarker(latlng, {
+      radius: 8,
+      fillColor: style.fillColor,
+      fillOpacity: style.fillOpacity,
+      color: style.color,
+      weight: style.weight,
+    })
+  }, [geoJsonStyle])
+
   // Popup functionality disabled - property details shown in sidebar only
   const selectedPropertyMarker = null
 
@@ -276,6 +288,7 @@ export function LeafletMap(props: MapComponentProps) {
               data={geoJsonData as any}
               style={geoJsonStyle}
               onEachFeature={onEachFeature}
+              pointToLayer={pointToLayer}
             />
             <LayerGroup>
               {addressNumberMarkers}

@@ -229,9 +229,16 @@ async function fetchProperties(
     return await propertyApi.search(cleanParams, signal)
   }
 
-  // Priority 5: Default bbox search (show properties in viewport)
+  // Priority 5: Default bbox search (viewport: centroids only for small payload)
   if (bbox) {
-    return await propertyApi.search({ bbox, page_size: 200 }, signal)
+    const viewportParams: { bbox: string; page_size: number; geometry_mode: 'centroid'; zoom?: number } = {
+      bbox,
+      page_size: 200,
+      geometry_mode: 'centroid',
+    }
+    // Backend expects zoom as integer (FastAPI Optional[int]); map getZoom() returns float
+    if (params.zoom != null) viewportParams.zoom = Math.floor(params.zoom)
+    return await propertyApi.search(viewportParams, signal)
   }
 
   // No valid query - return empty result

@@ -260,6 +260,7 @@ export interface SearchResponse {
   total: number
   page: number
   page_size: number
+  truncated?: boolean // true when bbox cap limited results (viewport search)
 }
 
 export interface FilterResponse {
@@ -299,6 +300,8 @@ export const propertyApi = {
       min_lot_size?: number
       max_lot_size?: number
       bbox?: string
+      geometry_mode?: 'centroid' | 'full'
+      zoom?: number
       unit_type?: string
       zoning?: string
       year_built_min?: number

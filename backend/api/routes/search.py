@@ -36,6 +36,7 @@ class SearchResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    truncated: Optional[bool] = False  # True when more results exist than returned (e.g. bbox cap)
 
 @router.get("/", response_model=SearchResponse)
 async def search_properties(
@@ -65,11 +66,21 @@ async def search_properties(
     owner_address: Optional[str] = Query(None, description="Filter by owner mailing address (partial match)"),
     owner_city: Optional[str] = Query(None, description="Filter by owner mailing city. For multiple values, pass comma-separated string."),
     owner_state: Optional[str] = Query(None, description="Filter by owner mailing state. For multiple values, pass comma-separated string."),
+    geometry_mode: Optional[str] = Query("full", description="Geometry in response: 'centroid' (Point) or 'full' (polygon). Use centroid for viewport/bbox to keep payload small."),
+    zoom: Optional[int] = Query(None, description="Map zoom level (e.g. 15–18). When bbox is set, used to cap page_size."),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db)
 ):
     """Search properties with various filters"""
+    # Zoom-based cap for bbox requests (keeps viewport responses bounded)
+    if bbox and zoom is not None:
+        if zoom <= 15:
+            page_size = min(page_size, 200)
+        elif zoom <= 16:
+            page_size = min(page_size, 400)
+        else:
+            page_size = min(page_size, 800)
     page_size = min(page_size, MAX_PAGE_SIZE)
     try:
         query = db.query(Property)
@@ -424,6 +435,10 @@ async def search_properties(
             except ValueError:
                 pass
         
+        # Stable sort for bbox so results do not shuffle across requests
+        if bbox:
+            query = query.order_by(Property.id)
+        
         # Get total count
         total = query.count()
         
@@ -431,36 +446,33 @@ async def search_properties(
         skip = (page - 1) * page_size
         properties = query.offset(skip).limit(page_size).all()
         
-        # Convert to response format
+        # Single bulk geometry query (no N+1): fetch all geometries for this page in one go
+        geom_map = {}
+        if properties:
+            use_centroid = (bbox and (geometry_mode or "").lower() == "centroid")
+            ids = [p.id for p in properties]
+            geom_sql = (
+                "SELECT id, ST_AsGeoJSON(ST_Centroid(geometry)) AS geom FROM properties WHERE id = ANY(:ids) ORDER BY id"
+                if use_centroid
+                else "SELECT id, ST_AsGeoJSON(geometry) AS geom FROM properties WHERE id = ANY(:ids) ORDER BY id"
+            )
+            try:
+                geom_rows = db.execute(text(geom_sql), {"ids": ids}).fetchall()
+                for row in geom_rows:
+                    geometry_data = json.loads(row.geom) if row.geom else None
+                    geom_map[row.id] = {"type": "Feature", "geometry": geometry_data}
+            except Exception as geom_err:
+                import traceback
+                print(f"Bulk geometry query failed: {geom_err}")
+                traceback.print_exc()
+        
+        # Build response from properties + geom_map
         results = []
         for prop in properties:
             try:
-                # Get geometry as GeoJSON - handle null geometries
-                # Use text() with parameterized query for reliable geometry conversion
-                geom_result = None
-                if prop.geometry is not None:
-                    try:
-                        geom_result = db.execute(
-                            text("SELECT ST_AsGeoJSON(geometry) FROM properties WHERE id = :id"),
-                            {"id": prop.id}
-                        ).scalar()
-                    except Exception as geom_error:
-                        import traceback
-                        error_details = f"Error converting geometry for property {prop.id}: {str(geom_error)}"
-                        print(error_details)
-                        traceback.print_exc()
-                        geom_result = None
-                
-                # Parse geometry JSON if available
-                geometry_data = None
-                if geom_result:
-                    try:
-                        geometry_data = json.loads(geom_result)
-                    except json.JSONDecodeError as json_error:
-                        print(f"Error parsing GeoJSON for property {prop.id}: {str(json_error)}")
-                        geometry_data = None
-                
-                # Create response object manually to avoid from_orm issues
+                geometry_data = geom_map.get(prop.id)
+                if geometry_data is None:
+                    geometry_data = {"type": "Feature", "geometry": None}
                 result = PropertyResponse(
                     id=prop.id,
                     parcel_id=prop.parcel_id,
@@ -483,22 +495,22 @@ async def search_properties(
                     is_absentee=prop.is_absentee or 0,
                     is_vacant=prop.is_vacant or 0,
                     equity_estimate=prop.equity_estimate,
-                    geometry={"type": "Feature", "geometry": geometry_data}
+                    geometry=geometry_data
                 )
                 results.append(result)
             except Exception as e:
-                # Skip properties with errors but log them
                 import traceback
-                error_details = f"Error processing property {prop.id if prop else 'unknown'}: {str(e)}"
-                print(error_details)
+                print(f"Error building response for property {prop.id}: {e}")
                 traceback.print_exc()
                 continue
         
+        truncated = total > (skip + len(properties))
         return SearchResponse(
             properties=results,
             total=total,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            truncated=truncated
         )
     except HTTPException:
         raise
