@@ -117,10 +117,8 @@ async function fetchProperties(
       ? filterParams.municipality.join(',') 
       : filterParams.municipality
     const baseParams: any = { municipality: municipalityParam }
-    if (searchQuery) {
-      const normalizedQ = normalizeSearchQuery(searchQuery)
-      if (normalizedQ.length > 0) baseParams.q = normalizedQ
-    }
+    // Do not send text search (q) when only municipality is selected so the backend returns
+    // the full count for the town (LOWER(TRIM(municipality)) = town); adding q can exclude rows.
     const searchParams = buildSearchParams(baseParams)
     // Explicitly ensure bbox is not included (delete even if it doesn't exist)
     delete searchParams.bbox
@@ -303,7 +301,7 @@ export function usePropertyQuery(params: PropertyQueryParams) {
 
   // #region agent log
   useEffect(() => {
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'usePropertyQuery.ts:enabled',message:'Query enabled state',data:{enabled,hasSearchCriteria,hasBbox,searchQueryLen:searchQuery?.trim()?.length,hasOwnerAddress:!!filterParams?.owner_address},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4,H5'})}).catch(()=>{});
+    (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'usePropertyQuery.ts:enabled',message:'Query enabled state',data:{enabled,hasSearchCriteria,hasBbox,searchQueryLen:searchQuery?.trim()?.length,hasOwnerAddress:!!filterParams?.owner_address},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4,H5'})}).catch(()=>{}));
   }, [enabled, hasSearchCriteria, hasBbox, searchQuery, filterParams?.owner_address])
   // #endregion
 

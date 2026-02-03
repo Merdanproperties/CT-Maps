@@ -55,7 +55,7 @@ async def export_csv(
         )
     
     if municipality:
-        query = query.filter(Property.municipality.ilike(f"%{municipality}%"))
+        query = query.filter(func.lower(func.trim(Property.municipality)) == municipality.strip().lower())
     
     if property_type:
         query = query.filter(Property.property_type.ilike(f"%{property_type}%"))
@@ -196,7 +196,7 @@ async def export_json(
         )
     
     if municipality:
-        query = query.filter(Property.municipality.ilike(f"%{municipality}%"))
+        query = query.filter(func.lower(func.trim(Property.municipality)) == municipality.strip().lower())
     
     if property_type:
         query = query.filter(Property.property_type.ilike(f"%{property_type}%"))
@@ -303,7 +303,7 @@ async def export_excel(
         )
     
     if municipality:
-        query = query.filter(Property.municipality.ilike(f"%{municipality}%"))
+        query = query.filter(func.lower(func.trim(Property.municipality)) == municipality.strip().lower())
     
     if property_type:
         query = query.filter(Property.property_type.ilike(f"%{property_type}%"))

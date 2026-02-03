@@ -978,7 +978,7 @@ export default function MapView() {
 
   // #region agent log
   useEffect(() => {
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:sidebar-state',message:'Sidebar render state',data:{shouldShowList,hasSidebarContent,isSidebarVisible,propertiesToShowLen:propertiesToShow.length,dataTotal:data?.total,searchQuery:searchQuery?.slice(0,30),ownerAddress:filterParams?.owner_address?.slice(0,30),showPropertyList,sidebarCollapsed},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1,H2,H5'})}).catch(()=>{});
+    (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:sidebar-state',message:'Sidebar render state',data:{shouldShowList,hasSidebarContent,isSidebarVisible,propertiesToShowLen:propertiesToShow.length,dataTotal:data?.total,searchQuery:searchQuery?.slice(0,30),ownerAddress:filterParams?.owner_address?.slice(0,30),showPropertyList,sidebarCollapsed},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1,H2,H5'})}).catch(()=>{}));
   }, [shouldShowList, hasSidebarContent, isSidebarVisible, propertiesToShow.length, data?.total, searchQuery, filterParams?.owner_address, showPropertyList, sidebarCollapsed]);
   // #endregion
 

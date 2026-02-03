@@ -1,5 +1,8 @@
 # CT Maps full stack - single command: docker compose up
-# Browser -> frontend:3000 (proxy) -> backend:8000 -> postgres:5432
+# Browser -> frontend:3000 (proxy) -> backend:8000 -> postgres:5432 (inside Docker)
+#
+# Postgres is published on host port 5433 (not 5432) so host-run imports hit Docker
+# and do not conflict with local Postgres on 5432. Backend container uses postgres:5432 internally.
 #
 # Source is mounted so code changes are visible without rebuilding:
 # - Backend: --reload so edits restart the API

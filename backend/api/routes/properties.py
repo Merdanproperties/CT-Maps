@@ -249,7 +249,7 @@ async def list_properties(
     query = db.query(Property)
     
     if municipality:
-        query = query.filter(Property.municipality.ilike(f"%{municipality}%"))
+        query = query.filter(func.lower(func.trim(Property.municipality)) == municipality.strip().lower())
     
     properties = query.offset(skip).limit(limit).all()
     

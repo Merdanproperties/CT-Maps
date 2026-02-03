@@ -530,9 +530,10 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
   const selectedCount = multiSelect && Array.isArray(selected) ? selected.length : (selected && selected !== 'Clear' ? 1 : 0)
   
   // Display value: show count or selected value(s)
+  // For Town multi-select, show selected town names so user sees "Middletown, Danbury" not just "Town (2)"
   const displayValue = selectedCount > 0 
     ? (multiSelect && Array.isArray(selected) 
-        ? `${label} (${selectedCount})` 
+        ? (label === 'Town' ? selected.join(', ') : `${label} (${selectedCount})`)
         : (typeof selected === 'string' ? selected : label))
     : label
 

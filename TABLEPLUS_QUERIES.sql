@@ -185,3 +185,54 @@ ORDER BY property_count DESC;
 -- SET municipality = INITCAP(LOWER(municipality))
 -- WHERE municipality IS NOT NULL
 --   AND municipality != INITCAP(LOWER(municipality));
+
+-- =============================================================================
+-- 14. IMPORT INTEGRITY: No duplicates (run after imports to verify correctness)
+--    Like Torrington had: same town imported twice with different parcel_id
+--    formats (geodatabase IDs vs address-hash). These queries should return
+--    zero rows when imports are correct.
+-- =============================================================================
+
+-- 14a. Duplicate (parcel_id, municipality) — should be 0 rows.
+--      DB has unique constraint; this catches any legacy or constraint bypass.
+SELECT
+    parcel_id,
+    municipality,
+    COUNT(*) AS row_count
+FROM properties
+GROUP BY parcel_id, municipality
+HAVING COUNT(*) > 1
+ORDER BY municipality, parcel_id;
+
+-- 14b. Same address + municipality with different parcel_ids — "Torrington-style"
+--      Same town, same normalized address, but multiple rows (different parcel_id).
+--      Should be 0 rows. If any rows appear, one import may have duplicated
+--      the same address with a different key (e.g. geodatabase vs geocode flow).
+SELECT
+    LOWER(TRIM(municipality))   AS municipality_norm,
+    LOWER(TRIM(address))        AS address_norm,
+    COUNT(DISTINCT parcel_id)    AS distinct_parcel_ids,
+    COUNT(*)                    AS row_count,
+    STRING_AGG(parcel_id, ' | ' ORDER BY parcel_id) AS parcel_ids
+FROM properties
+WHERE address IS NOT NULL AND TRIM(address) != ''
+GROUP BY LOWER(TRIM(municipality)), LOWER(TRIM(address))
+HAVING COUNT(*) > 1
+ORDER BY municipality_norm, address_norm;
+
+-- 14c. One-line integrity summary (run after 14a and 14b).
+--      duplicate_keys = 0 and duplicate_addresses = 0 means imports are clean.
+SELECT
+    (SELECT COUNT(*) FROM (
+        SELECT parcel_id, municipality
+        FROM properties
+        GROUP BY parcel_id, municipality
+        HAVING COUNT(*) > 1
+    ) t) AS duplicate_parcel_municipality_pairs,
+    (SELECT COUNT(*) FROM (
+        SELECT LOWER(TRIM(municipality)), LOWER(TRIM(address))
+        FROM properties
+        WHERE address IS NOT NULL AND TRIM(address) != ''
+        GROUP BY LOWER(TRIM(municipality)), LOWER(TRIM(address))
+        HAVING COUNT(*) > 1
+    ) u) AS duplicate_address_per_town_groups;

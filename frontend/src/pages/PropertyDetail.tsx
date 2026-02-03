@@ -303,8 +303,8 @@ export default function PropertyDetail() {
     const childCount = el.children.length
     const width = el.offsetWidth
     const rect = el.getBoundingClientRect()
-    const computed = window.getComputedStyle(el)
-    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PropertyDetail.tsx:grid-mount',message:'Detail grid mounted',data:{gridChildCount:childCount,gridWidth:width,gridTop:rect.top,viewportHeight:window.innerHeight,belowFold:rect.top>window.innerHeight,display:computed.display,gridTemplateColumns:computed.gridTemplateColumns,windowInnerWidth:window.innerWidth},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H1,H3,H4,H5'})}).catch(()=>{})
+    const computedStyle = window.getComputedStyle(el);
+    (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PropertyDetail.tsx:grid-mount',message:'Detail grid mounted',data:{gridChildCount:childCount,gridWidth:width,gridTop:rect.top,viewportHeight:window.innerHeight,belowFold:rect.top>window.innerHeight,display:computedStyle.display,gridTemplateColumns:computedStyle.gridTemplateColumns,windowInnerWidth:window.innerWidth},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H1,H3,H4,H5'})}).catch(()=>{}))
   }, [id])
 
   if (isLoading) {
@@ -333,8 +333,8 @@ export default function PropertyDetail() {
   const getSafe = safeProperty.getSafe
 
   // #region agent log
-  const salesSectionShown = !!(getSafe('last_sale_date') || (Number(getSafe('sales_count', 0)) > 0))
-  fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PropertyDetail.tsx:main-render',message:'Main content render',data:{propertyId:id,hasOwnerName:!!getSafe('owner_name'),lastSaleDate:getSafe('last_sale_date'),salesCount:Number(getSafe('sales_count',0)),salesSectionShown},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H2'})}).catch(()=>{})
+  const salesSectionShown = !!(getSafe('last_sale_date') || (Number(getSafe('sales_count', 0)) > 0));
+  (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PropertyDetail.tsx:main-render',message:'Main content render',data:{propertyId:id,hasOwnerName:!!getSafe('owner_name'),lastSaleDate:getSafe('last_sale_date'),salesCount:Number(getSafe('sales_count',0)),salesSectionShown},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H2'})}).catch(()=>{}));
   // #endregion
 
   return (

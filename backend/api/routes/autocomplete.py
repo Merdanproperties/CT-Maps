@@ -60,7 +60,7 @@ async def autocomplete(
             Property.address != ''
         ]
         if municipality_filter:
-            address_filters.append(func.lower(Property.municipality).in_(municipality_filter))
+            address_filters.append(func.lower(func.trim(Property.municipality)).in_(municipality_filter))
         address_subquery = db.query(
             Property.address,
             Property.municipality,
@@ -122,23 +122,24 @@ async def autocomplete(
             ))
 
     # Get matching towns/municipalities (only when type is None or town)
+    # Group by TRIM(municipality) so "Danbury" and "Danbury " show as one suggestion with combined count
     if want_town:
         town_filters = [
             Property.municipality.ilike(search_term),
             Property.municipality.isnot(None),
-            Property.municipality != ''
+            func.trim(Property.municipality) != ''
         ]
         if municipality_filter:
-            town_filters.append(func.lower(Property.municipality).in_(municipality_filter))
+            town_filters.append(func.lower(func.trim(Property.municipality)).in_(municipality_filter))
         town_results = db.query(
-            Property.municipality,
+            func.trim(Property.municipality).label('municipality'),
             func.count(Property.id).label('count'),
             func.ST_Y(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lat'),
             func.ST_X(func.ST_Centroid(func.ST_Collect(Property.geometry))).label('center_lng')
         ).filter(
             *town_filters
         ).group_by(
-            Property.municipality
+            func.trim(Property.municipality)
         ).order_by(
             func.count(Property.id).desc()
         ).limit(limit).all()
@@ -146,7 +147,7 @@ async def autocomplete(
         for result in town_results:
             suggestions.append(AutocompleteSuggestion(
                 type='town',
-                value=result.municipality,
+                value=result.municipality or '',
                 display=f"{result.municipality}, CT ({result.count:,} properties)",
                 count=result.count,
                 center_lat=float(result.center_lat) if result.center_lat else None,
@@ -170,7 +171,7 @@ async def autocomplete(
             Property.owner_address != ''
         ]
         if municipality_filter:
-            owner_addr_filters.append(func.lower(Property.municipality).in_(municipality_filter))
+            owner_addr_filters.append(func.lower(func.trim(Property.municipality)).in_(municipality_filter))
         owner_address_results = db.query(
             Property.owner_address,
             Property.owner_city,
@@ -215,7 +216,7 @@ async def autocomplete(
             Property.owner_name != ''
         ]
         if municipality_filter:
-            owner_name_filters.append(func.lower(Property.municipality).in_(municipality_filter))
+            owner_name_filters.append(func.lower(func.trim(Property.municipality)).in_(municipality_filter))
         owner_name_results = db.query(
             Property.owner_name,
             func.count(Property.id).label('count'),
@@ -257,7 +258,7 @@ async def autocomplete(
             Property.owner_address != ''
         ]
         if municipality_filter:
-            owner_addr_filters_owner.append(func.lower(Property.municipality).in_(municipality_filter))
+            owner_addr_filters_owner.append(func.lower(func.trim(Property.municipality)).in_(municipality_filter))
         owner_address_results = db.query(
             Property.owner_address,
             Property.owner_city,

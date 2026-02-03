@@ -108,32 +108,24 @@ async def search_properties(
             )
         
         # Municipality filter - supports both single value and comma-separated values
+        # Use TRIM so "Danbury" matches "Danbury ", " Danbury", etc. (app count matches DB count)
         if municipality:
             # Handle comma-separated values
             municipalities = [m.strip() for m in municipality.split(',')] if isinstance(municipality, str) else [municipality]
             municipalities = [m for m in municipalities if m]  # Filter out empty strings
             
             if municipalities:
+                # Exact match only: "Hartford" must not match East Hartford / West Hartford
                 if len(municipalities) == 1:
-                    municipality_clean = municipalities[0]
-                    query = query.filter(
-                        or_(
-                            Property.municipality == municipality_clean,
-                            Property.municipality.ilike(f"%{municipality_clean}%")
-                        )
-                    )
+                    municipality_clean = municipalities[0].strip()
+                    query = query.filter(func.lower(func.trim(Property.municipality)) == municipality_clean.lower())
                 else:
-                    # Multiple municipalities: use OR condition
-                    municipality_filters = []
-                    for m in municipalities:
-                        municipality_clean = m.strip()
-                        municipality_filters.append(
-                            or_(
-                                Property.municipality == municipality_clean,
-                                Property.municipality.ilike(f"%{municipality_clean}%")
-                            )
-                        )
-                    query = query.filter(or_(*municipality_filters))
+                    municipality_filters = [
+                        func.lower(func.trim(Property.municipality)) == m.strip().lower()
+                        for m in municipalities if m.strip()
+                    ]
+                    if municipality_filters:
+                        query = query.filter(or_(*municipality_filters))
         
         # Value range filter
         if min_value is not None:
@@ -544,30 +536,22 @@ def apply_filters_to_query(
     owner_state: Optional[str] = None
 ):
     """Helper function to apply all filters to a query"""
-    # Municipality filter
+    # Municipality filter - exact match only so "Hartford" does not match East/West Hartford
+    # Use TRIM so counts match DB (include rows with leading/trailing spaces in municipality)
     if municipality:
         municipalities = [m.strip() for m in municipality.split(',')] if isinstance(municipality, str) else [municipality]
         municipalities = [m for m in municipalities if m]
         if municipalities:
             if len(municipalities) == 1:
-                municipality_clean = municipalities[0]
-                query = query.filter(
-                    or_(
-                        Property.municipality == municipality_clean,
-                        Property.municipality.ilike(f"%{municipality_clean}%")
-                    )
-                )
+                municipality_clean = municipalities[0].strip()
+                query = query.filter(func.lower(func.trim(Property.municipality)) == municipality_clean.lower())
             else:
-                municipality_filters = []
-                for m in municipalities:
-                    municipality_clean = m.strip()
-                    municipality_filters.append(
-                        or_(
-                            Property.municipality == municipality_clean,
-                            Property.municipality.ilike(f"%{municipality_clean}%")
-                        )
-                    )
-                query = query.filter(or_(*municipality_filters))
+                municipality_filters = [
+                    func.lower(func.trim(Property.municipality)) == m.strip().lower()
+                    for m in municipalities if m.strip()
+                ]
+                if municipality_filters:
+                    query = query.filter(or_(*municipality_filters))
     
     # Unit type filter
     if unit_type:
@@ -945,13 +929,10 @@ async def get_municipality_bounds(
                     ST_Y(ST_Centroid(ST_Collect(geometry))) as center_lat,
                     ST_X(ST_Centroid(ST_Collect(geometry))) as center_lng
                 FROM properties
-                WHERE (municipality = :municipality OR municipality ILIKE :municipality_like)
+                WHERE LOWER(TRIM(municipality)) = LOWER(:municipality)
                   AND geometry IS NOT NULL
             """),
-            {
-                'municipality': municipality,
-                'municipality_like': f"%{municipality}%"
-            }
+            {'municipality': municipality.strip()}
         ).fetchone()
         
         if not extent_result or extent_result[0] is None:

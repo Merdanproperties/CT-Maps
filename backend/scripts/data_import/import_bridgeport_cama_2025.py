@@ -178,10 +178,13 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
     print(f"  Loaded {len(df)} records from raw CSV")
     print(f"  Total columns in CSV: {len(df.columns)}")
     
-    # Map column names - handle both Bridgeport and Torrington formats
+    # Map column names - handle Bridgeport, Torrington, Redding, and other town formats.
+    # Normalize: location -> Property Address, slh_own_name -> Owner, etc.
     column_mapping = {}
-    
-    # Address column mapping - handle multiple formats
+    # Normalized column lookup: lowercase, spaces->underscores (e.g. "Owner Name" and "owner_name" both match)
+    col_lower = {str(c).strip().lower().replace(' ', '_'): c for c in df.columns}
+
+    # Address column mapping - handle multiple formats (case-insensitive where noted)
     if 'Property Address' in df.columns:
         column_mapping['Property Address'] = 'Property Address'
         address_col = 'Property Address'
@@ -189,6 +192,20 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
         column_mapping['Property Address'] = 'Location'
         address_col = 'Location'
         df['Property Address'] = df['Location']  # Create alias
+    elif col_lower.get('location'):
+        address_col = col_lower['location']
+        df['Property Address'] = df[address_col]
+        column_mapping['Property Address'] = address_col
+        print(f"  Using address column: {address_col} (normalized from 'location')")
+    elif any(k == 'location' or k.endswith('_location') for k in col_lower):
+        # e.g. REM_Location, Location (any case)
+        for k, c in col_lower.items():
+            if k == 'location' or k.endswith('_location'):
+                address_col = c
+                df['Property Address'] = df[address_col]
+                column_mapping['Property Address'] = address_col
+                print(f"  Using address column: {address_col} (normalized from location-like name)")
+                break
     elif 'Street_Number' in df.columns and 'Street_Name' in df.columns:
         # Construct address from Street_Number and Street_Name
         print(f"  Constructing address from Street_Number and Street_Name...")
@@ -218,20 +235,27 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
         address_col = 'Property Address'
         column_mapping['Property Address'] = 'Property Address'
     else:
-        # Try to find any column with 'address' in the name (case insensitive)
+        # Try column named 'location' (any case), then any column with 'address' in the name
         address_col = None
         for col in df.columns:
-            if 'address' in str(col).lower():
+            if str(col).strip().lower() == 'location':
                 address_col = col
                 df['Property Address'] = df[col]
                 column_mapping['Property Address'] = col
-                print(f"  Found address column: {col}")
+                print(f"  Found address column: {col} (normalized to Property Address)")
                 break
-        
+        if not address_col:
+            for col in df.columns:
+                if 'address' in str(col).lower():
+                    address_col = col
+                    df['Property Address'] = df[col]
+                    column_mapping['Property Address'] = col
+                    print(f"  Found address column: {col}")
+                    break
         if not address_col:
             raise ValueError(f"Property Address column not found in raw CSV. Available columns: {list(df.columns)[:20]}")
     
-    # Parcel ID column mapping
+    # Parcel ID column mapping (exact and case-insensitive alias)
     if 'Parcel ID' in df.columns:
         column_mapping['Parcel ID'] = 'Parcel ID'
         parcel_id_col = 'Parcel ID'
@@ -239,23 +263,28 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
         column_mapping['Parcel ID'] = 'PID'
         parcel_id_col = 'PID'
         df['Parcel ID'] = df['PID']  # Create alias
+    elif col_lower.get('parcel id') or col_lower.get('parcel_id'):
+        parcel_id_col = col_lower.get('parcel id') or col_lower.get('parcel_id')
+        df['Parcel ID'] = df[parcel_id_col]
+        column_mapping['Parcel ID'] = parcel_id_col
+        print(f"  Using parcel column: {parcel_id_col} (normalized to Parcel ID)")
     else:
         print(f"  ⚠️  Parcel ID column not found, will use index")
         parcel_id_col = None
         df['Parcel ID'] = df.index.astype(str)
-    
-    # Map other columns with fallbacks
+
+    # Map other columns with fallbacks (standard name -> possible CSV names; case-insensitive match)
     column_mappings = {
-        'Assessed Total': ['Assessed Total'],
-        'Assessed Building': ['Assessed Building'],
-        'Assessed Land': ['Assessed Land'],
-        'Valuation Year': ['Valuation Year'],
-        'Living Area': ['Living Area', 'Gross Area of Primary Building'],
-        'Actual Year Built': ['Actual Year Built', 'AYB', 'EYB'],
-        'Number of Bedroom': ['Number of Bedroom'],
-        'Number of Bathrooms': ['Number of Bathrooms', 'Number of Baths'],
-        'Stories': ['Stories'],
-        'Total Rooms': ['Total Rooms'],
+        'Assessed Total': ['Assessed Total', 'assessed total', 'assessed_total'],
+        'Assessed Building': ['Assessed Building', 'assessed building'],
+        'Assessed Land': ['Assessed Land', 'assessed land'],
+        'Valuation Year': ['Valuation Year', 'valuation year'],
+        'Living Area': ['Living Area', 'Gross Area of Primary Building', 'living area'],
+        'Actual Year Built': ['Actual Year Built', 'AYB', 'EYB', 'actual year built'],
+        'Number of Bedroom': ['Number of Bedroom', 'number of bedroom'],
+        'Number of Bathrooms': ['Number of Bathrooms', 'Number of Baths', 'number of bathrooms'],
+        'Stories': ['Stories', 'stories'],
+        'Total Rooms': ['Total Rooms', 'total rooms'],
         'Roof Cover Description': ['Roof Cover Description'],
         'Roof Structure Description': ['Roof Structure Description'],
         'Heat Type Description': ['Heat Type Description'],
@@ -263,19 +292,37 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
         'Number of Fireplaces': ['Number of Fireplaces', 'No of Fireplaces'],
         'Exterior Wall 1 Description': ['Exterior Wall 1 Description', 'Ext Wall1 Description'],
         'Interior Wall 1 Description': ['Interior Wall 1 Description', 'Int Wall1 Description'],
-        'Owner': ['Owner'],
+        'Owner': ['Owner', 'slh_own_name', 'owner_name', 'Owner Name', 'owner', 'OWNER'],
+        # Owner mailing (SLH_* = owner/sale fields in some town CSVs)
+        'Mailing Address': ['Mailing Address', 'SLH_OWN_ADDR', 'slh_own_addr', 'Owner Mailing Address'],
+        'Mailing City': ['Mailing City', 'SLH_CITY', 'slh_city', 'Owner Mailing City'],
+        'Mailing State': ['Mailing State', 'SLH_STT', 'slh_stt', 'Owner Mailing State'],
+        'Mailing Zip': ['Mailing Zip', 'SLH_ZIP', 'slh_zip', 'Owner Mailing Zip'],
+        # Sale / style / use / zone (inferrable from names)
+        'Sale Price': ['Sale Price', 'SLH_PRICE', 'slh_price'],
+        'Style Description': ['Style Description', 'CSN_STYLE_DESC', 'csn_style_desc'],
+        'State Use Description': ['State Use Description', 'CSN_OCC_DESC', 'csn_occ_desc', 'Occupancy Description'],
+        'Zone': ['Zone', 'LND_ZONE', 'lnd_zone', 'zone'],
     }
-    
-    # Build column selection list
+
+    # Build column selection list; match possible_cols case-insensitively to df.columns
     selected_columns = [address_col, parcel_id_col] if parcel_id_col else [address_col]
     available_mappings = {}
-    
+
     for target_col, possible_cols in column_mappings.items():
         for possible_col in possible_cols:
+            key = str(possible_col).strip().lower().replace(' ', '_')
             if possible_col in df.columns:
                 available_mappings[target_col] = possible_col
                 if possible_col not in selected_columns:
                     selected_columns.append(possible_col)
+                break
+            if key in col_lower:
+                src = col_lower[key]
+                available_mappings[target_col] = src
+                if src not in selected_columns:
+                    selected_columns.append(src)
+                print(f"  Using {target_col} column: {src} (normalized)")
                 break
     
     # Select columns
@@ -412,9 +459,10 @@ def map_to_database_fields(combined_record: Dict) -> Dict:
     """
     db_record = {}
     
-    # From cleaned file
-    if 'Full Name' in combined_record:
-        db_record['owner_name'] = str(combined_record['Full Name']).strip() if pd.notna(combined_record['Full Name']) else None
+    # From cleaned file (or raw CSV e.g. slh_own_name -> Owner)
+    _owner = combined_record.get('Full Name') or combined_record.get('raw_Owner')
+    if _owner is not None and pd.notna(_owner):
+        db_record['owner_name'] = str(_owner).strip()
     
     if 'Property Address' in combined_record:
         db_record['address'] = str(combined_record['Property Address']).strip() if pd.notna(combined_record['Property Address']) else None
@@ -435,57 +483,47 @@ def map_to_database_fields(combined_record: Dict) -> Dict:
         else:
             db_record['zip_code'] = None
     
-    if 'Mailing Address' in combined_record:
-        db_record['owner_address'] = str(combined_record['Mailing Address']).strip() if pd.notna(combined_record['Mailing Address']) else None
-    
-    if 'Mailing City' in combined_record:
-        db_record['owner_city'] = str(combined_record['Mailing City']).strip() if pd.notna(combined_record['Mailing City']) else None
-    
-    if 'Mailing State' in combined_record:
-        db_record['owner_state'] = str(combined_record['Mailing State']).strip() if pd.notna(combined_record['Mailing State']) else None
-    
-    if 'Mailing Zip' in combined_record:
-        zip_val = str(combined_record['Mailing Zip']).strip() if pd.notna(combined_record['Mailing Zip']) else None
-        if zip_val:
-            zip_val = zip_val.split('-')[0].split(' ')[0].strip()
-            if len(zip_val) == 5 and zip_val.isdigit():
-                db_record['owner_zip'] = zip_val
-            else:
-                db_record['owner_zip'] = None
-        else:
-            db_record['owner_zip'] = None
-    
-    if 'Sale Price' in combined_record:
-        sale_price = combined_record['Sale Price']
-        if pd.notna(sale_price):
-            try:
-                db_record['last_sale_price'] = float(sale_price)
-            except (ValueError, TypeError):
-                db_record['last_sale_price'] = None
-        else:
+    # Mailing / owner address (from cleaned Excel or raw CSV e.g. SLH_OWN_ADDR, SLH_CITY, SLH_STT, SLH_ZIP)
+    _mail_addr = combined_record.get('Mailing Address') or combined_record.get('raw_Mailing Address')
+    if _mail_addr is not None and pd.notna(_mail_addr):
+        db_record['owner_address'] = str(_mail_addr).strip()
+    if combined_record.get('Mailing City') is not None or combined_record.get('raw_Mailing City') is not None:
+        _v = combined_record.get('Mailing City') or combined_record.get('raw_Mailing City')
+        db_record['owner_city'] = str(_v).strip() if pd.notna(_v) else None
+    if combined_record.get('Mailing State') is not None or combined_record.get('raw_Mailing State') is not None:
+        _v = combined_record.get('Mailing State') or combined_record.get('raw_Mailing State')
+        db_record['owner_state'] = str(_v).strip() if pd.notna(_v) else None
+    _mail_zip = combined_record.get('Mailing Zip') or combined_record.get('raw_Mailing Zip')
+    if _mail_zip is not None and pd.notna(_mail_zip):
+        zip_val = str(_mail_zip).strip().split('-')[0].split(' ')[0].strip()
+        db_record['owner_zip'] = zip_val if len(zip_val) == 5 and zip_val.isdigit() else None
+    elif 'owner_zip' not in db_record:
+        db_record['owner_zip'] = None
+
+    # Sale price/date (cleaned or raw e.g. SLH_PRICE)
+    sale_price = combined_record.get('Sale Price') or combined_record.get('raw_Sale Price')
+    if sale_price is not None and pd.notna(sale_price):
+        try:
+            db_record['last_sale_price'] = float(sale_price)
+        except (ValueError, TypeError):
             db_record['last_sale_price'] = None
-    
-    if 'Sale Date' in combined_record:
-        sale_date = combined_record['Sale Date']
-        if pd.notna(sale_date):
-            try:
-                if isinstance(sale_date, str):
-                    db_record['last_sale_date'] = pd.to_datetime(sale_date).date()
-                else:
-                    db_record['last_sale_date'] = sale_date.date() if hasattr(sale_date, 'date') else sale_date
-            except (ValueError, TypeError):
-                db_record['last_sale_date'] = None
-        else:
+    sale_date = combined_record.get('Sale Date') or combined_record.get('raw_Sale Date')
+    if sale_date is not None and pd.notna(sale_date):
+        try:
+            db_record['last_sale_date'] = pd.to_datetime(sale_date).date() if isinstance(sale_date, str) else (sale_date.date() if hasattr(sale_date, 'date') else sale_date)
+        except (ValueError, TypeError):
             db_record['last_sale_date'] = None
-    
-    if 'State Use Description' in combined_record:
-        db_record['land_use'] = str(combined_record['State Use Description']).strip() if pd.notna(combined_record['State Use Description']) else None
-    
-    if 'Style Description' in combined_record:
-        db_record['property_type'] = str(combined_record['Style Description']).strip() if pd.notna(combined_record['Style Description']) else None
-    
-    if 'Zone' in combined_record:
-        db_record['zoning'] = str(combined_record['Zone']).strip() if pd.notna(combined_record['Zone']) else None
+
+    # Land use / style / zone (cleaned or raw e.g. CSN_OCC_DESC, CSN_STYLE_DESC, LND_ZONE)
+    _use = combined_record.get('State Use Description') or combined_record.get('raw_State Use Description')
+    if _use is not None and pd.notna(_use):
+        db_record['land_use'] = str(_use).strip()
+    _style = combined_record.get('Style Description') or combined_record.get('raw_Style Description')
+    if _style is not None and pd.notna(_style):
+        db_record['property_type'] = str(_style).strip()
+    _zone = combined_record.get('Zone') or combined_record.get('raw_Zone')
+    if _zone is not None and pd.notna(_zone):
+        db_record['zoning'] = str(_zone).strip()
     
     if 'Email' in combined_record:
         db_record['owner_email'] = str(combined_record['Email']).strip() if pd.notna(combined_record['Email']) else None

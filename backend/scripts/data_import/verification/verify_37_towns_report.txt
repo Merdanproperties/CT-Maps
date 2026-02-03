@@ -1,0 +1,140 @@
+================================================================================
+VERIFY 37 TOWNS: Geodatabase Excel, Cleaned Excel, CSV, Parcel_ID matchability
+================================================================================
+Towns file: /Users/jacobmermelstein/Desktop/CT Maps/backend/scripts/data_import/towns_no_location.txt
+Geodatabase Excel dir: /Users/jacobmermelstein/Desktop/CT Maps/Analysis scripts/Excel geodatabase all towns
+CT Data dir: /Users/jacobmermelstein/Desktop/CT Data
+Min overlap for 'can use Parcel_ID': 50.0%
+
+  Checking 1/37: Avon... OK (Parcel_ID match)
+  Checking 2/37: Bolton... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 3/37: Bridgeport... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 4/37: Bridgewater... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 5/37: Chaplin... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 6/37: Chester... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 7/37: Danbury... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 8/37: Enfield... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 9/37: Essex... Parcel_ID overlap too low (0.3% < 50.0%)
+  Checking 10/37: Hartford... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 11/37: Hartland... missing cleaned Excel
+  Checking 12/37: Hebron... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 13/37: Killingly... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 14/37: Lebanon... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 15/37: Ledyard... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 16/37: Lyme... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 17/37: Madison... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 18/37: Manchester... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 19/37: Mansfield... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 20/37: Middletown... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 21/37: Montville... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 22/37: Norwalk... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 23/37: Old Lyme... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 24/37: Putnam... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 25/37: Redding... CSV has no Parcel ID / PID column
+  Checking 26/37: Ridgefield... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 27/37: Rocky Hill... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 28/37: South Windsor... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 29/37: Stafford... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 30/37: Stamford... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 31/37: Torrington... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 32/37: Voluntown... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 33/37: Westport... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 34/37: Wethersfield... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 35/37: Willington... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 36/37: Windham... Parcel_ID overlap too low (0.0% < 50.0%)
+  Checking 37/37: Woodstock... Parcel_ID overlap too low (0.0% < 50.0%)
+
+================================================================================
+BREAKDOWN: Can use import_town_optimized (Parcel_ID matching) — NO geocode_spatial needed
+================================================================================
+  Total: 1 towns
+    - Avon (overlap 52.7%)
+
+================================================================================
+BREAKDOWN: Cannot use Parcel_ID matching — need geocode_spatial or fix data
+================================================================================
+  Total: 36 towns
+    - Bolton: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Bridgeport: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Bridgewater: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Chaplin: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Chester: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Danbury: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Enfield: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Essex: Parcel_ID overlap too low (0.3% < 50.0%)
+    - Hartford: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Hartland: missing cleaned Excel
+    - Hebron: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Killingly: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Lebanon: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Ledyard: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Lyme: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Madison: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Manchester: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Mansfield: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Middletown: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Montville: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Norwalk: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Old Lyme: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Putnam: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Redding: CSV has no Parcel ID / PID column
+    - Ridgefield: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Rocky Hill: Parcel_ID overlap too low (0.0% < 50.0%)
+    - South Windsor: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Stafford: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Stamford: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Torrington: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Voluntown: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Westport: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Wethersfield: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Willington: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Windham: Parcel_ID overlap too low (0.0% < 50.0%)
+    - Woodstock: Parcel_ID overlap too low (0.0% < 50.0%)
+
+================================================================================
+DETAILED TABLE (all 37 towns)
+================================================================================
+Town             GeoExcel Cleaned  CSV    GeoPID  GeoGeom  CSVPID  Overlap% USE_PARCEL_ID
+----------------------------------------------------------------------------------------------------
+Avon             Y        Y        Y      Y       Y        Y       52.7     YES         
+Bolton           Y        Y        Y      Y       Y        Y       0.0      NO          
+Bridgeport       Y        Y        Y      Y       Y        Y       0.0      NO          
+Bridgewater      Y        Y        Y      Y       Y        Y       0.0      NO          
+Chaplin          Y        Y        Y      Y       Y        Y       0.0      NO          
+Chester          Y        Y        Y      Y       Y        Y       0.0      NO          
+Danbury          Y        Y        Y      Y       Y        Y       0.0      NO          
+Enfield          Y        Y        Y      Y       Y        Y       0.0      NO          
+Essex            Y        Y        Y      Y       Y        Y       0.3      NO          
+Hartford         Y        Y        Y      Y       Y        Y       0.0      NO          
+Hartland         Y        N        N      N       N        N       —        NO          
+Hebron           Y        Y        Y      Y       Y        Y       0.0      NO          
+Killingly        Y        Y        Y      Y       Y        Y       0.0      NO          
+Lebanon          Y        Y        Y      Y       Y        Y       0.0      NO          
+Ledyard          Y        Y        Y      Y       Y        Y       0.0      NO          
+Lyme             Y        Y        Y      Y       Y        Y       0.0      NO          
+Madison          Y        Y        Y      Y       Y        Y       0.0      NO          
+Manchester       Y        Y        Y      Y       Y        Y       0.0      NO          
+Mansfield        Y        Y        Y      Y       Y        Y       0.0      NO          
+Middletown       Y        Y        Y      Y       Y        Y       0.0      NO          
+Montville        Y        Y        Y      Y       Y        Y       0.0      NO          
+Norwalk          Y        Y        Y      Y       Y        Y       0.0      NO          
+Old Lyme         Y        Y        Y      Y       Y        Y       0.0      NO          
+Putnam           Y        Y        Y      Y       Y        Y       0.0      NO          
+Redding          Y        Y        Y      Y       Y        N       —        NO          
+Ridgefield       Y        Y        Y      Y       Y        Y       0.0      NO          
+Rocky Hill       Y        Y        Y      Y       Y        Y       0.0      NO          
+South Windsor    Y        Y        Y      Y       Y        Y       0.0      NO          
+Stafford         Y        Y        Y      Y       Y        Y       0.0      NO          
+Stamford         Y        Y        Y      Y       Y        Y       0.0      NO          
+Torrington       Y        Y        Y      Y       Y        Y       0.0      NO          
+Voluntown        Y        Y        Y      Y       Y        Y       0.0      NO          
+Westport         Y        Y        Y      Y       Y        Y       0.0      NO          
+Wethersfield     Y        Y        Y      Y       Y        Y       0.0      NO          
+Willington       Y        Y        Y      Y       Y        Y       0.0      NO          
+Windham          Y        Y        Y      Y       Y        Y       0.0      NO          
+Woodstock        Y        Y        Y      Y       Y        Y       0.0      NO          
+
+Conclusion:
+  - Use import_town_optimized (Parcel_ID only) for: 1 towns
+  - Need geocode_spatial or fix missing data for: 36 towns
+================================================================================

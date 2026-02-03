@@ -62,4 +62,4 @@ Use this when running the batch import or `import_town_optimized` so the script 
 
 ---
 
-*Last updated: 2026-01-28. See also: backend/scripts/data_import/134_towns_output/IMPORT_TOWN_OPTIMIZED_REFERENCE.md (canonical, same content).*
+*Last updated: 2026-01-28. See also: backend/scripts/data_import/134_towns/docs/IMPORT_TOWN_OPTIMIZED_REFERENCE.md (canonical, same content).*

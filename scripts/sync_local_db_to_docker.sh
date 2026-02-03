@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Copy local Postgres ct_properties database into Docker Postgres.
-# Run this whenever you update your local DB and want Docker to use the same data.
-# Requires: Docker Postgres running (docker compose up -d postgres), pg_dump and pg_restore on host.
+# Use when you have a separate local DB and want to copy it into Docker.
+#
+# To have imports always update Docker (no sync needed): set backend/.env
+#   DATABASE_URL=postgresql+psycopg2://ctmaps:ctmaps@127.0.0.1:5433/ct_properties
+# (Docker Postgres is on host port 5433 so it doesn't conflict with local Postgres on 5432.)
+#
+# Requires: Docker Postgres running (docker compose up -d postgres), pg_dump on host.
 
 set -e
 
