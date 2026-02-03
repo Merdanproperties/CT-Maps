@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { MapContainer, TileLayer, GeoJSON, Marker, useMap, LayerGroup } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -178,7 +178,8 @@ export function LeafletMap(props: MapComponentProps) {
     mapUpdatingRef,
     geoJsonStyle,
     getCentroid,
-    navigate
+    navigate,
+    municipalityBoundaries = [],
   } = props
 
   // Handle GeoJSON click and add labels - popup disabled, only update sidebar
@@ -245,7 +246,26 @@ export function LeafletMap(props: MapComponentProps) {
     })
   }, [geoJsonStyle])
 
-  // Popup functionality disabled - property details shown in sidebar only
+  // GeoJSON for selected municipality boundary outlines (bbox rectangle per town)
+  const municipalityBoundariesGeoJson = useMemo((): GeoJSON.FeatureCollection => {
+    if (!municipalityBoundaries.length) return { type: 'FeatureCollection', features: [] }
+    const features: GeoJSON.Feature<GeoJSON.Polygon>[] = municipalityBoundaries.map((b) => ({
+      type: 'Feature',
+      properties: { name: b.name },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [b.west, b.south],
+          [b.east, b.south],
+          [b.east, b.north],
+          [b.west, b.north],
+          [b.west, b.south],
+        ]],
+      },
+    }))
+    return { type: 'FeatureCollection', features }
+  }, [municipalityBoundaries])
+
   const selectedPropertyMarker = null
 
   return (
@@ -280,6 +300,15 @@ export function LeafletMap(props: MapComponentProps) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
+
+        {municipalityBoundariesGeoJson.features.length > 0 && (
+          <GeoJSON
+            key="municipality-boundaries"
+            data={municipalityBoundariesGeoJson as any}
+            style={() => ({ fillColor: 'transparent', fillOpacity: 0, color: '#0ea5e9', weight: 2 })}
+            interactive={false}
+          />
+        )}
         
         {geoJsonData.features.length > 0 && (
           <>

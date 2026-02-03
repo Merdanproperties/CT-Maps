@@ -45,6 +45,7 @@ export default function MapView() {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const selectedPropertyScrollRef = useRef<HTMLDivElement | null>(null)
   const mapViewRef = useRef<HTMLDivElement | null>(null)
+  const [municipalityBoundaries, setMunicipalityBoundaries] = useState<Array<{ name: string; north: number; south: number; east: number; west: number }>>([])
 
   // Keep --total-header-height in sync with actual nav bar height so sidebar is not overlapped
   useEffect(() => {
@@ -61,13 +62,13 @@ export default function MapView() {
     return () => ro.disconnect()
   }, [])
 
-  // Memoize the bounds change handler
-  // When municipality is set, don't update mapBounds to prevent bbox from interfering with municipality filter
+  // Memoize the bounds change handler.
+  // Update mapBounds on pan/zoom so viewport-within-town (zoom >= 15) can refetch. Only skip during initial municipality bounds fetch.
   const handleBoundsChange = useCallback((bounds: { north: number; south: number; east: number; west: number }) => {
-    if (!filterParams?.municipality && !fetchingMunicipalityBoundsRef.current) {
+    if (!fetchingMunicipalityBoundsRef.current) {
       setMapBounds(bounds)
     }
-  }, [filterParams?.municipality])
+  }, [])
   
   // Handle navigation from search bar
   useEffect(() => {
@@ -272,44 +273,117 @@ export default function MapView() {
     }
   }, [location.state])
 
-  // Get bounding box for current viewport - use actual map bounds if available
-  // When municipality is set, don't calculate bbox to prevent it from interfering with municipality filter
+  // Get bounding box for current viewport. When municipality is set, use bbox only at zoom 15+ (viewport-within-town).
   const bbox = useMemo(() => {
-    // If municipality is set, return undefined to prevent bbox from being used
-    if (filterParams?.municipality) {
-      return undefined
-    }
-    
+    if (filterParams?.municipality && zoom < 15) return undefined
+
+    const expand = zoom >= 17 ? 0.25 : 0
+    let west: number, south: number, east: number, north: number
     if (mapBounds) {
-      // Use actual map bounds: minLng, minLat, maxLng, maxLat
-      const bboxVal = `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
-      return bboxVal
+      west = mapBounds.west
+      south = mapBounds.south
+      east = mapBounds.east
+      north = mapBounds.north
+    } else {
+      const latRange = 180 / Math.pow(2, zoom)
+      const lngRange = 360 / Math.pow(2, zoom)
+      west = center[1] - lngRange
+      south = center[0] - latRange
+      east = center[1] + lngRange
+      north = center[0] + latRange
     }
-    // Fallback to approximate bbox based on center and zoom
-    const latRange = 180 / Math.pow(2, zoom)
-    const lngRange = 360 / Math.pow(2, zoom)
-    const bboxVal = `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
-    return bboxVal
+    if (expand > 0) {
+      const latPad = (north - south) * expand
+      const lngPad = (east - west) * expand
+      west -= lngPad
+      south -= latPad
+      east += lngPad
+      north += latPad
+    }
+    return `${west},${south},${east},${north}`
   }, [mapBounds, center, zoom, filterParams?.municipality])
 
-  // Viewport fetch: only when zoomed in, map ready, and no active search (strict separation)
+  // Viewport fetch when zoomed in (15+): no town = full viewport; town selected = viewport within town
   const viewportFetchEnabled =
     isMapReady &&
     zoom >= 15 &&
-    !filterParams?.municipality &&
     !(debouncedSearchQuery?.trim() ?? '') &&
     !filterType
+  const passViewportToQuery = viewportFetchEnabled || (!!filterParams?.municipality && zoom >= 15 && isMapReady)
 
   // Use the new simplified property query hook
   const { data, isLoading, error, status, fetchStatus } = usePropertyQuery({
     filterType,
     filterParams,
     searchQuery: debouncedSearchQuery,
-    bbox: viewportFetchEnabled ? bbox : undefined,
-    mapBounds: viewportFetchEnabled ? mapBounds : null,
-    center: viewportFetchEnabled ? center : undefined,
-    zoom: viewportFetchEnabled ? zoom : undefined,
+    bbox: passViewportToQuery ? bbox : undefined,
+    mapBounds: passViewportToQuery ? mapBounds : null,
+    center: passViewportToQuery ? center : undefined,
+    zoom: passViewportToQuery ? zoom : undefined,
   })
+
+  // When municipality filter is set (single or multiple), zoom map and store boundaries for outline
+  useEffect(() => {
+    const m = filterParams?.municipality
+    if (!m) {
+      setMunicipalityBoundaries([])
+      return
+    }
+    const townNames: string[] = (Array.isArray(m) ? m.join(',') : m).split(',').map((s: string) => s.trim()).filter(Boolean)
+    if (townNames.length === 0) {
+      setMunicipalityBoundaries([])
+      return
+    }
+
+    setShowPropertyList(true)
+    setMapBounds(null)
+    fetchingMunicipalityBoundsRef.current = true
+
+    const fetchAndZoom = (boundsList: Array<{ min_lat: number; min_lng: number; max_lat: number; max_lng: number }>) => {
+      setMunicipalityBoundaries(
+        boundsList.map((b, i) => ({
+          name: townNames[i] ?? '',
+          north: b.max_lat,
+          south: b.min_lat,
+          east: b.max_lng,
+          west: b.min_lng,
+        }))
+      )
+      const minLat = Math.min(...boundsList.map((b) => b.min_lat))
+      const minLng = Math.min(...boundsList.map((b) => b.min_lng))
+      const maxLat = Math.max(...boundsList.map((b) => b.max_lat))
+      const maxLng = Math.max(...boundsList.map((b) => b.max_lng))
+      const centerLat = (minLat + maxLat) / 2
+      const centerLng = (minLng + maxLng) / 2
+      const latRange = maxLat - minLat
+      const lngRange = maxLng - minLng
+      const maxRange = Math.max(latRange, lngRange)
+      let zoomLevel = 12
+      if (maxRange > 0.2) zoomLevel = 8
+      else if (maxRange > 0.1) zoomLevel = 9
+      else if (maxRange > 0.05) zoomLevel = 10
+      else if (maxRange > 0.02) zoomLevel = 11
+      else if (maxRange > 0.01) zoomLevel = 12
+      else if (maxRange > 0.005) zoomLevel = 13
+      else zoomLevel = 14
+      setCenter([centerLat, centerLng])
+      setZoom(zoomLevel)
+      setTimeout(() => {
+        setMapBounds({ north: maxLat, south: minLat, east: maxLng, west: minLng })
+        fetchingMunicipalityBoundsRef.current = false
+      }, 100)
+    }
+
+    if (townNames.length === 1) {
+      propertyApi.getMunicipalityBounds(townNames[0])
+        .then((bounds) => fetchAndZoom([bounds]))
+        .catch(() => { fetchingMunicipalityBoundsRef.current = false })
+    } else {
+      Promise.all(townNames.map((name) => propertyApi.getMunicipalityBounds(name)))
+        .then(fetchAndZoom)
+        .catch(() => { fetchingMunicipalityBoundsRef.current = false })
+    }
+  }, [filterParams?.municipality])
 
   // Show property list when we have search criteria
   useEffect(() => {
@@ -447,105 +521,12 @@ export default function MapView() {
           return newParams
         })
       } else if (filter === 'municipality') {
-        // Handle arrays: convert to comma-separated string for backend
-        const municipalityValue = Array.isArray(value) ? value.join(',') : value
-        
         setFilterParams((prev: any) => {
           const newParams = { ...prev }
-          if (municipalityValue) {
-            newParams.municipality = municipalityValue
-            
-            // Immediately clear map bounds to prevent bbox from being used
-            // This ensures queries use ONLY municipality filter, not bbox
-            setMapBounds(null)
-            
-            // Set flag to indicate we're fetching bounds
-            fetchingMunicipalityBoundsRef.current = true
-            
-            // Show property list immediately when municipality is selected
-            setShowPropertyList(true)
-            
-            // Fetch municipality bounds and zoom map to show entire municipality
-            const municipalityName = Array.isArray(value) ? value[0] : municipalityValue
-            propertyApi.getMunicipalityBounds(municipalityName)
-              .then((bounds) => {
-                // Calculate center from bounds
-                const centerLat = bounds.center_lat
-                const centerLng = bounds.center_lng
-                
-                // Calculate appropriate zoom level based on bounds extent
-                const latRange = bounds.max_lat - bounds.min_lat
-                const lngRange = bounds.max_lng - bounds.min_lng
-                const maxRange = Math.max(latRange, lngRange)
-                
-                // Determine zoom level based on extent
-                let zoomLevel = 12
-                if (maxRange > 0.1) zoomLevel = 10      // Very large area
-                else if (maxRange > 0.05) zoomLevel = 11  // Large area
-                else if (maxRange > 0.02) zoomLevel = 12   // Medium area
-                else if (maxRange > 0.01) zoomLevel = 13  // Small area
-                else zoomLevel = 14                        // Very small area
-                
-                // Set map center and zoom
-                setCenter([centerLat, centerLng])
-                setZoom(zoomLevel)
-                
-                // Set map bounds to municipality bounds AFTER a short delay
-                // This prevents the bounds update from triggering a query
-                setTimeout(() => {
-                  setMapBounds({
-                    north: bounds.max_lat,
-                    south: bounds.min_lat,
-                    east: bounds.max_lng,
-                    west: bounds.min_lng
-                  })
-                  fetchingMunicipalityBoundsRef.current = false
-                }, 100)
-                
-                console.log('📍 [Municipality] Fetched bounds and zoomed map:', {
-                  municipality: municipalityName,
-                  bounds,
-                  center: [centerLat, centerLng],
-                  zoom: zoomLevel
-                })
-              })
-              .catch((error) => {
-                console.error('❌ Failed to fetch municipality bounds:', error)
-                fetchingMunicipalityBoundsRef.current = false
-                // Fallback to approximate center if bounds fetch fails
-                const municipalityCenters: Record<string, [number, number]> = {
-                  'Torrington': [41.8006, -73.1212],
-                  'Bridgeport': [41.1865, -73.1952],
-                  'Hartford': [41.7658, -72.6734],
-                  'New Haven': [41.3083, -72.9279],
-                  'Stamford': [41.0534, -73.5387],
-                  'Waterbury': [41.5582, -73.0515],
-                  'Norwalk': [41.1176, -73.4080],
-                  'Danbury': [41.3948, -73.4540],
-                  'New Britain': [41.6612, -72.7795],
-                  'West Hartford': [41.7620, -72.7420],
-                  'Greenwich': [41.0262, -73.6282],
-                  'Hamden': [41.3959, -72.8965],
-                  'Meriden': [41.5382, -72.8070],
-                  'Bristol': [41.6718, -72.9493],
-                  'Middletown': [41.5623, -72.6506],
-                  'Stratford': [41.1845, -73.1332],
-                  'Norwich': [41.5242, -72.0759],
-                  'New London': [41.3557, -72.0995],
-                }
-                const center = municipalityCenters[municipalityName]
-                if (center) {
-                  setCenter(center)
-                  setZoom(12)
-                }
-              })
-          } else {
-            delete newParams.municipality
-            fetchingMunicipalityBoundsRef.current = false
-            // Clear unit type and zoning when municipality is cleared
-            delete newParams.unit_type
-            delete newParams.zoning
-          }
+          delete newParams.municipality
+          fetchingMunicipalityBoundsRef.current = false
+          delete newParams.unit_type
+          delete newParams.zoning
           return newParams
         })
         setFilterType(null)
@@ -1222,6 +1203,7 @@ export default function MapView() {
         getCentroid={getCentroid}
         properties={properties}
         navigate={navigate}
+        municipalityBoundaries={municipalityBoundaries}
       />
 
       <div className="map-zoom-overlay" aria-hidden>

@@ -22,7 +22,8 @@ export function MapboxMap(props: MapComponentProps) {
     geoJsonStyle,
     getCentroid,
     properties,
-    navigate
+    navigate,
+    municipalityBoundaries = [],
   } = props
 
   const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
@@ -297,6 +298,37 @@ export function MapboxMap(props: MapComponentProps) {
         interactiveLayerIds={['properties-layer', 'properties-points-layer']}
         onClick={onFeatureClick}
       >
+        {/* Municipality boundary outlines (when town(s) selected) */}
+        {municipalityBoundaries.length > 0 && (
+          <Source
+            id="municipality-boundaries"
+            type="geojson"
+            data={{
+              type: 'FeatureCollection',
+              features: municipalityBoundaries.map((b) => ({
+                type: 'Feature',
+                properties: { name: b.name },
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: [[
+                    [b.west, b.south],
+                    [b.east, b.south],
+                    [b.east, b.north],
+                    [b.west, b.north],
+                    [b.west, b.south],
+                  ]],
+                },
+              })),
+            }}
+          >
+            <Layer
+              id="municipality-boundaries-line"
+              type="line"
+              paint={{ 'line-color': '#0ea5e9', 'line-width': 2 }}
+            />
+          </Source>
+        )}
+
         {/* GeoJSON Source and Layer */}
         {geoJsonData.features.length > 0 && (
           <Source id="properties" type="geojson" data={geoJsonData}>

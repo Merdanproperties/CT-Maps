@@ -110,27 +110,25 @@ async function fetchProperties(
     : filterParams.municipality
     
   if (municipalityValue) {
-    // When municipality is set, explicitly exclude bbox to prevent showing properties outside the municipality
-    // The backend applies bbox filter after municipality filter, which causes incorrect results
-    // Convert array to string if needed (backend expects comma-separated string)
-    const municipalityParam = Array.isArray(filterParams.municipality) 
-      ? filterParams.municipality.join(',') 
+    const municipalityParam = Array.isArray(filterParams.municipality)
+      ? filterParams.municipality.join(',')
       : filterParams.municipality
-    const baseParams: any = { municipality: municipalityParam }
-    // Do not send text search (q) when only municipality is selected so the backend returns
-    // the full count for the town (LOWER(TRIM(municipality)) = town); adding q can exclude rows.
+    const baseParams: any = { municipality: municipalityParam, geometry_mode: 'centroid' }
     const searchParams = buildSearchParams(baseParams)
-    // Explicitly ensure bbox is not included (delete even if it doesn't exist)
-    delete searchParams.bbox
-    
-    // Remove any undefined/null values to prevent axios from sending them
+    if (params.bbox) {
+      searchParams.bbox = params.bbox
+      if (params.zoom != null) searchParams.zoom = Math.floor(params.zoom)
+    } else if (params.zoom != null) {
+      searchParams.zoom = Math.floor(params.zoom)
+    }
+
     const cleanParams: any = {}
     for (const [key, value] of Object.entries(searchParams)) {
       if (value !== undefined && value !== null && key !== 'bbox') {
         cleanParams[key] = value
       }
     }
-    
+    if (searchParams.bbox != null) cleanParams.bbox = searchParams.bbox
     return await propertyApi.search(cleanParams, signal)
   }
 
@@ -260,13 +258,14 @@ export function usePropertyQuery(params: PropertyQueryParams) {
         : filterParams.municipality)
     : null
     
+  // When municipality is set and zoom 15+ we pass bbox (viewport-within-town): include bounds in key so pan/zoom refetches
+  const boundsKey = mapBounds ? `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}` : null
   const queryKey = [
     'properties',
     filterType,
     JSON.stringify(filterParams),
     searchQuery,
-    // Only include mapBounds in query key if municipality is NOT set (prevents bbox interference)
-    municipalityKey ? null : (mapBounds ? `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}` : null),
+    municipalityKey && !bbox ? null : boundsKey,
   ]
 
   // Determine if query should be enabled
@@ -300,9 +299,7 @@ export function usePropertyQuery(params: PropertyQueryParams) {
       filterParams.owner_state !== undefined
     ))
 
-  // When municipality is set, don't use bbox/mapBounds for query enabling
-  // This prevents map movements from triggering queries when municipality filter is active
-  const hasBbox = filterParams?.municipality ? false : (!!bbox || !!mapBounds || (!!center && !!zoom))
+  const hasBbox = !!bbox || !!mapBounds || (!!center && !!zoom)
 
   const enabled = hasSearchCriteria || hasBbox
 
@@ -324,20 +321,13 @@ export function usePropertyQuery(params: PropertyQueryParams) {
         // Do not block on health check - let the request run and fail fast if backend is down
         // (waitForHealthy caused 3–30s stalls when backend was unhealthy)
 
-        // When municipality is set, don't use bbox at all - municipality filter should be exclusive
-        // Calculate bbox only if municipality is NOT set
         let calculatedBbox: string | undefined = bbox
-        if (!filterParams?.municipality) {
-          if (!calculatedBbox && mapBounds) {
-            calculatedBbox = `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
-          } else if (!calculatedBbox && center && zoom) {
-            const latRange = 180 / Math.pow(2, zoom)
-            const lngRange = 360 / Math.pow(2, zoom)
-            calculatedBbox = `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
-          }
-        } else {
-          // Municipality is set - explicitly don't use bbox
-          calculatedBbox = undefined
+        if (!calculatedBbox && mapBounds) {
+          calculatedBbox = `${mapBounds.west},${mapBounds.south},${mapBounds.east},${mapBounds.north}`
+        } else if (!calculatedBbox && center && zoom) {
+          const latRange = 180 / Math.pow(2, zoom)
+          const lngRange = 360 / Math.pow(2, zoom)
+          calculatedBbox = `${center[1] - lngRange},${center[0] - latRange},${center[1] + lngRange},${center[0] + latRange}`
         }
 
         const result = await fetchProperties(
@@ -346,7 +336,7 @@ export function usePropertyQuery(params: PropertyQueryParams) {
             filterParams,
             searchQuery,
             bbox: calculatedBbox,
-            mapBounds: filterParams?.municipality ? null : mapBounds, // Don't pass mapBounds when municipality is set
+            mapBounds,
             center,
             zoom,
           },

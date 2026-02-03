@@ -24,4 +24,5 @@ export interface MapComponentProps {
   getCentroid: (geometry: any) => [number, number] | null
   properties: Property[]
   navigate: (path: string) => void
+  municipalityBoundaries?: Array<{ name: string; north: number; south: number; east: number; west: number }>
 }

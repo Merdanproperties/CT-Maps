@@ -438,7 +438,7 @@ async def search_properties(
         # Stable sort for bbox so results do not shuffle across requests
         if bbox:
             query = query.order_by(Property.id)
-        
+
         # Get total count
         total = query.count()
         
@@ -449,7 +449,7 @@ async def search_properties(
         # Single bulk geometry query (no N+1): fetch all geometries for this page in one go
         geom_map = {}
         if properties:
-            use_centroid = (bbox and (geometry_mode or "").lower() == "centroid")
+            use_centroid = (geometry_mode or "").lower() == "centroid"
             ids = [p.id for p in properties]
             geom_sql = (
                 "SELECT id, ST_AsGeoJSON(ST_Centroid(geometry)) AS geom FROM properties WHERE id = ANY(:ids) ORDER BY id"
