@@ -77,9 +77,32 @@
   font-weight: 600;
 }
 
-.property-details-compact {
+.property-owner-mailing {
   grid-column: 2;
   grid-row: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 0.125rem;
+  min-width: 0;
+}
+
+.owner-mailing-icon {
+  flex-shrink: 0;
+  color: #888;
+  margin-top: 0.125rem;
+}
+
+.owner-mailing-value {
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+.property-details-compact {
+  grid-column: 2;
+  grid-row: 4;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -136,7 +159,7 @@
 
 .property-contact-bottom {
   grid-column: 2;
-  grid-row: 4;
+  grid-row: 5;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -180,6 +203,6 @@
 
 .property-tags {
   grid-column: 2;
-  grid-row: 5;
+  grid-row: 6;
   margin-top: 0.5rem;
 }

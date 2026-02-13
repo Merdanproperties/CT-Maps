@@ -7,9 +7,14 @@ import './TopFilterBar.css'
 
 const OPTIONS_STALE_MS = 5 * 60 * 1000 // Cache options for 5 min per filter combo
 
+export interface FilterChangeOptions {
+  center?: [number, number]
+  zoom?: number
+}
+
 interface TopFilterBarProps {
-  onFilterChange?: (filter: string, value: any) => void
-  onSearchChange?: (query: string) => void
+  onFilterChange?: (filter: string, value: any, options?: FilterChangeOptions) => void
+  onSearchChange?: (query: string, source?: 'address_town' | 'owner') => void
   onClearAllFilters?: () => void
   /** Selected town(s); string or array for multi-select. Used to scope search bar autocomplete. */
   municipality?: string | string[] | null
@@ -165,7 +170,9 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
   }, [filterParams])
 
 
-  const handleFilterSelect = (filterName: string, value: any, updateState: boolean = true) => {
+  const handleFilterSelect = (filterName: string, value: any, updateStateOrOptions: boolean | FilterChangeOptions = true) => {
+    const updateState = typeof updateStateOrOptions === 'boolean' ? updateStateOrOptions : true
+    const options = typeof updateStateOrOptions === 'object' && updateStateOrOptions !== null ? updateStateOrOptions : undefined
     // Special handling for text inputs (like ownerAddress)
     // Don't clear on empty string - let the MapView handler decide
     if (filterName === 'ownerAddress') {
@@ -180,14 +187,14 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
           onFilterChange(filterName, null)
         }
       } else {
-        // Update filter with the actual value (even if it's a single character)
+        // Update filter with the exact value from the suggestion (no over-normalization)
         const newFilters = { ...selectedFilters }
         newFilters[filterName] = value
         if (updateState) {
           setSelectedFilters(newFilters)
         }
         if (onFilterChange) {
-          onFilterChange(filterName, value)
+          onFilterChange(filterName, value, options)
         }
       }
       return
@@ -298,7 +305,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
             <FilterDropdown
               label="Mailing Address"
               options={['Clear']}
-              onSelect={(value) => handleFilterSelect('ownerAddress', value)}
+              onSelect={(value, options) => handleFilterSelect('ownerAddress', value, options)}
               selected={selectedFilters.ownerAddress}
               multiSelect={false}
               isTextInput={true}
@@ -492,7 +499,7 @@ export default function TopFilterBar({ onFilterChange, onSearchChange, onClearAl
 interface FilterDropdownProps {
   label: string
   options: string[]
-  onSelect: (value: string) => void
+  onSelect: (value: string, options?: FilterChangeOptions) => void
   selected?: string | string[]
   disabled?: boolean
   multiSelect?: boolean
@@ -510,12 +517,14 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
   const [searchQuery, setSearchQuery] = useState('')
   const [textInputValue, setTextInputValue] = useState('')
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([])
-  const [richAutocompleteSuggestions, setRichAutocompleteSuggestions] = useState<Array<{ type: string; value: string; display: string; count?: number }>>([])
+  const [richAutocompleteSuggestions, setRichAutocompleteSuggestions] = useState<Array<{ type: string; value: string; display: string; count?: number; center_lat?: number; center_lng?: number }>>([])
   const [showAutocomplete, setShowAutocomplete] = useState(false)
   const [isLoadingAutocomplete, setIsLoadingAutocomplete] = useState(false)
   const useRichAutocomplete = isTextInput && label === 'Mailing Address'
   const searchInputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<HTMLDivElement>(null)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const MAILING_DEBOUNCE_MS = 400
   
   // Determine if option is selected (handle both single and multi-select)
   const isSelected = (option: string) => {
@@ -659,12 +668,23 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
       }
     }
 
+    const debounceMs = useRichAutocomplete ? 400 : 300
     const timer = setTimeout(() => {
       fetchSuggestions()
-    }, 300) // Debounce
+    }, debounceMs)
 
     return () => clearTimeout(timer)
   }, [textInputValue, isTextInput, label, selectedFilters, municipality, useRichAutocomplete])
+
+  // Clear debounce timer on unmount (Mailing Address)
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+        debounceTimerRef.current = null
+      }
+    }
+  }, [])
 
   // Close autocomplete when clicking outside
   useEffect(() => {
@@ -683,9 +703,16 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
   const handleTextInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setTextInputValue(value)
-    // Always call onSelect with the actual value, even if empty
-    // This allows real-time search as user types
-    onSelect(value)
+    if (useRichAutocomplete) {
+      // Debounce search: only notify parent after user stops typing to avoid many /api/search/ calls
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = setTimeout(() => {
+        debounceTimerRef.current = null
+        onSelect(value)
+      }, MAILING_DEBOUNCE_MS)
+    } else {
+      onSelect(value)
+    }
   }
 
   const handleTextInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -697,6 +724,20 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
   const handleSuggestionSelect = (suggestion: string) => {
     setTextInputValue(suggestion)
     onSelect(suggestion)
+    setShowAutocomplete(false)
+  }
+
+  const handleRichSuggestionSelect = (suggestion: { type: string; value: string; display: string; count?: number; center_lat?: number; center_lng?: number }) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    setTextInputValue(suggestion.value)
+    const center: [number, number] | undefined =
+      suggestion.center_lat != null && suggestion.center_lng != null
+        ? [suggestion.center_lat, suggestion.center_lng]
+        : undefined
+    onSelect(suggestion.value, center ? { center, zoom: 10 } : undefined)
     setShowAutocomplete(false)
   }
 
@@ -727,6 +768,10 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
               className="clear-text-input-btn"
               onClick={(e) => {
                 e.stopPropagation()
+                if (debounceTimerRef.current) {
+                  clearTimeout(debounceTimerRef.current)
+                  debounceTimerRef.current = null
+                }
                 setTextInputValue('')
                 onSelect('Clear')
                 setShowAutocomplete(false)
@@ -750,7 +795,7 @@ function FilterDropdown({ label, options, onSelect, selected, disabled, multiSel
                       type="button"
                       className="search-bar-suggestion"
                       data-type="owner_address"
-                      onClick={() => handleSuggestionSelect(suggestion.value)}
+                      onClick={() => handleRichSuggestionSelect(suggestion)}
                     >
                       <div className="search-bar-suggestion-icon">
                         <User size={16} />

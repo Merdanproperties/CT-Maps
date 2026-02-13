@@ -12,6 +12,7 @@ interface AutocompleteSuggestion {
   count?: number
   center_lat?: number
   center_lng?: number
+  municipality?: string | null
 }
 
 /** When set, single bar only (no type dropdown). address_town = address + town; owner = owner only. */
@@ -19,7 +20,7 @@ export type SearchBarMode = 'address_town' | 'owner'
 
 interface SearchBarProps {
   onSelect?: (suggestion: AutocompleteSuggestion) => void
-  onQueryChange?: (query: string) => void
+  onQueryChange?: (query: string, source?: 'address_town' | 'owner') => void
   placeholder?: string
   /** Single bar for address+town or owner only; no dropdown. */
   searchMode?: SearchBarMode
@@ -52,7 +53,7 @@ const MODE_SEARCH_TYPE: Record<SearchBarMode, string> = {
   owner: 'owner',
 }
 
-export default function SearchBar({ onSelect, onQueryChange, placeholder, searchMode, municipality }: SearchBarProps) {
+export default function SearchBar({ onSelect, onQueryChange, placeholder, searchMode, municipality: municipalityProp }: SearchBarProps) {
   const navigate = useNavigate()
   const [searchType, setSearchType] = useState<SearchBarType>('address')
   const [query, setQuery] = useState('')
@@ -69,11 +70,11 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
 
   // Scope autocomplete to selected town(s): normalize to comma-separated string for API
   const municipalityParam =
-    municipality == null
+    municipalityProp == null
       ? undefined
-      : Array.isArray(municipality)
-        ? municipality.filter(Boolean).join(',').trim() || undefined
-        : String(municipality).trim() || undefined
+      : Array.isArray(municipalityProp)
+        ? municipalityProp.filter(Boolean).join(',').trim() || undefined
+        : String(municipalityProp).trim() || undefined
 
   // Fetch autocomplete suggestions – show dropdown as user types (Loading then results or No results)
   const fetchSuggestions = useCallback(async (searchQuery: string, signal?: AbortSignal) => {
@@ -190,7 +191,15 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
           ? [suggestion.center_lat, suggestion.center_lng] 
           : null
         navState.zoom = 18
-        navState.address = suggestion.value;
+        navState.address = suggestion.value
+        try {
+          const town = suggestion['municipality']
+          if (town != null && typeof town === 'string' && town.trim()) {
+            navState.municipality = town.trim()
+          }
+        } catch {
+          // ignore invalid municipality on suggestion
+        }
         // #region agent log
         (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SearchBar.tsx:106',message:'Address suggestion selected',data:{address:suggestion.value,suggestionType:suggestion.type,centerLat:suggestion.center_lat,centerLng:suggestion.center_lng,navCenter:navState.center,count:suggestion.count},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{}));
         // #endregion
@@ -210,7 +219,6 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
         navState.searchQuery = suggestion.value;  // Owner mailing address
       }
       
-      console.log('🧭 Navigating with state:', navState)
       navigate('/', { 
         state: navState,
         replace: false
@@ -286,7 +294,7 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
     setSuggestions([])
     setShowSuggestions(false)
     if (onQueryChange) {
-      onQueryChange('')
+      onQueryChange('', searchMode ?? undefined)
     }
     inputRef.current?.focus()
   }
@@ -348,7 +356,7 @@ export default function SearchBar({ onSelect, onQueryChange, placeholder, search
             onChange={(e) => {
               setQuery(e.target.value)
               if (onQueryChange) {
-                onQueryChange(e.target.value)
+                onQueryChange(e.target.value, searchMode ?? undefined)
               }
             }}
             onKeyDown={handleKeyDown}

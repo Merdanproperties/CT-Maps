@@ -106,12 +106,16 @@ async def health_monitor_task():
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown"""
     logger.info("Starting CT Property Search API...")
-    # Initial health check and DB setup (run in thread pool)
-    import concurrent.futures
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(executor, check_database_health)
-    await loop.run_in_executor(executor, setup_database_tables)
+    try:
+        # Initial health check and DB setup (run in thread pool)
+        import concurrent.futures
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, check_database_health)
+        await loop.run_in_executor(executor, setup_database_tables)
+    except Exception as e:
+        logger.warning("Startup DB check/setup failed (app will still serve; /health will work): %s", e)
+        health_status["database"] = False
 
     # Start health monitoring task
     monitor_task = asyncio.create_task(health_monitor_task())

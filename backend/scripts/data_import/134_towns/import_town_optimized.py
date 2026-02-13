@@ -11,9 +11,10 @@ import sys
 import os
 import argparse
 import json
+import pickle
 from pathlib import Path
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
@@ -60,6 +61,96 @@ from scripts.data_import.import_bridgeport_cama_2025 import (
 # Default paths
 DEFAULT_DATA_DIR = Path("/Users/jacobmermelstein/Desktop/CT Data")
 GEO_EXCEL_DIR = _PROJECT_ROOT / "Analysis scripts" / "Excel geodatabase all towns"
+PARSE_CACHE_DIR = Path(__file__).parent / "logs" / "parse_cache"
+CACHE_VERSION = 1
+
+
+def _cache_key_for_town(municipality: str) -> str:
+    """Safe filename for cache (no spaces/slashes)."""
+    return municipality.replace(" ", "_").replace("/", "_").strip() or "unknown"
+
+
+def _sanitize_value(v: Any) -> Any:
+    """Convert value to plain Python type for cache (no numpy/pandas)."""
+    if v is None:
+        return None
+    if isinstance(v, (str, int, float, bool)):
+        return v
+    if hasattr(v, "item") and callable(getattr(v, "item", None)):
+        try:
+            return v.item()
+        except (ValueError, TypeError):
+            return str(v)
+    if isinstance(v, dict):
+        return {kk: _sanitize_value(vv) for kk, vv in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_sanitize_value(x) for x in v]
+    if pd.isna(v):
+        return None
+    try:
+        return float(v) if isinstance(v, (int, float)) else str(v)
+    except (ValueError, TypeError):
+        return str(v)
+
+
+def _record_to_cacheable(record: Dict) -> Dict:
+    """Convert a record to plain Python types for pickle."""
+    return {k: _sanitize_value(v) for k, v in record.items()}
+
+
+def _load_parse_cache(municipality: str, geo_path: Path, cleaned_path: Path, csv_path: Path) -> Optional[Dict[str, Any]]:
+    """Load cached parse result if file mtimes match. Returns None on miss or invalid."""
+    if not geo_path.exists() or not cleaned_path.exists() or not csv_path.exists():
+        return None
+    cache_path = PARSE_CACHE_DIR / f"{_cache_key_for_town(municipality)}.pkl"
+    if not cache_path.exists():
+        return None
+    try:
+        mtime_geo = geo_path.stat().st_mtime
+        mtime_cleaned = cleaned_path.stat().st_mtime
+        mtime_csv = csv_path.stat().st_mtime
+        with open(cache_path, "rb") as f:
+            data = pickle.load(f)
+        if data.get("version") != CACHE_VERSION:
+            return None
+        if (data.get("mtime_geo") != mtime_geo or
+                data.get("mtime_cleaned") != mtime_cleaned or
+                data.get("mtime_csv") != mtime_csv):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _save_parse_cache(
+    municipality: str,
+    geo_path: Path,
+    cleaned_path: Path,
+    csv_path: Path,
+    geodatabase_total_count: int,
+    matched_count: int,
+    unmatched_count: int,
+    combined_records: List[Dict],
+) -> None:
+    """Write parse cache after Step 5 (geometry-matched records)."""
+    try:
+        PARSE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_path = PARSE_CACHE_DIR / f"{_cache_key_for_town(municipality)}.pkl"
+        records_cacheable = [_record_to_cacheable(r) for r in combined_records]
+        payload = {
+            "version": CACHE_VERSION,
+            "mtime_geo": geo_path.stat().st_mtime,
+            "mtime_cleaned": cleaned_path.stat().st_mtime,
+            "mtime_csv": csv_path.stat().st_mtime,
+            "geodatabase_total_count": geodatabase_total_count,
+            "matched_count": matched_count,
+            "unmatched_count": unmatched_count,
+            "records": records_cacheable,
+        }
+        with open(cache_path, "wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass  # Don't fail the run if cache write fails
 
 def read_geodatabase_excel(excel_path: Path) -> pd.DataFrame:
     """Read geodatabase Excel file"""
@@ -274,113 +365,144 @@ def import_town_optimized(
     
     db = SessionLocal()
     try:
-        # Step 1: Read geodatabase Excel (has geometry!)
-        print("\n" + "=" * 80)
-        print("STEP 1: Reading Geodatabase Excel (with geometry)")
-        print("=" * 80)
-        geo_df = read_geodatabase_excel(geodatabase_excel_path)
-        geodatabase_total_count = len(geo_df)  # Track total geodatabase count
-        if limit:
-            geo_df = geo_df.head(limit)
-            print(f"  ⚠️  Limited to first {limit:,} records for testing")
-        
-        # Create lookup by Parcel_ID and Location (NO CAMA_Link/Link - those don't exist in cleaned Excel/CSV)
-        geo_lookup_by_parcel = {}
-        geo_lookup_by_address = {}
-        for idx, row in geo_df.iterrows():
-            parcel_id = str(row.get('Parcel_ID', '')).strip() if pd.notna(row.get('Parcel_ID')) else None
-            location = str(row.get('Location', '')).strip() if pd.notna(row.get('Location')) else None
-            
-            if parcel_id and parcel_id != 'nan':
-                geo_lookup_by_parcel[parcel_id] = row.to_dict()
-            if location:
-                norm_addr = normalize_address(location)
-                if norm_addr:
-                    if norm_addr not in geo_lookup_by_address:
-                        geo_lookup_by_address[norm_addr] = []
-                    geo_lookup_by_address[norm_addr].append(row.to_dict())
-        
-        print(f"  ✅ Created lookups:")
-        print(f"     - Parcel_ID: {len(geo_lookup_by_parcel):,}")
-        print(f"     - Address: {len(geo_lookup_by_address):,}")
-        
-        # Step 2: Read cleaned Excel
-        print("\n" + "=" * 80)
-        print("STEP 2: Reading Cleaned Excel")
-        print("=" * 80)
-        cleaned_df = read_cleaned_excel(str(cleaned_excel_path), limit=limit)
-        print(f"✅ Loaded {len(cleaned_df):,} records from cleaned Excel")
-        
-        # Step 3: Read raw CSV
-        print("\n" + "=" * 80)
-        print("STEP 3: Reading Raw CSV")
-        print("=" * 80)
-        raw_df, raw_lookup = read_raw_csv(str(raw_csv_path))
-        print(f"✅ Loaded {len(raw_df):,} records from CSV")
-        
-        # Step 4: Match Excel + CSV
-        print("\n" + "=" * 80)
-        print("STEP 4: Matching Excel + CSV")
-        print("=" * 80)
-        combined_records = match_and_combine(cleaned_df, raw_lookup)
-        print(f"✅ Combined {len(combined_records):,} records")
-        
-        # Step 5: Match with geodatabase Excel (add geometry)
-        print("\n" + "=" * 80)
-        print("STEP 5: Matching with Geodatabase Excel (adding geometry)")
-        print("=" * 80)
-        
+        use_cached = False
+        combined_records = []
+        geodatabase_total_count = 0
         matched_count = 0
         unmatched_count = 0
-        matched_by_parcel = 0
-        matched_by_address = 0
+
+        if limit is None:
+            cached = _load_parse_cache(
+                municipality, geodatabase_excel_path, cleaned_excel_path, raw_csv_path
+            )
+            if cached:
+                use_cached = True
+                combined_records = cached["records"]
+                geodatabase_total_count = cached["geodatabase_total_count"]
+                matched_count = cached["matched_count"]
+                unmatched_count = cached["unmatched_count"]
+                print("\n  ✅ Using cached parse (skipping Steps 1-5)")
+
+        if not use_cached:
+            # Step 1: Read geodatabase Excel (has geometry!)
+            print("\n" + "=" * 80)
+            print("STEP 1: Reading Geodatabase Excel (with geometry)")
+            print("=" * 80)
+            geo_df = read_geodatabase_excel(geodatabase_excel_path)
+            geodatabase_total_count = len(geo_df)  # Track total geodatabase count
+            if limit:
+                geo_df = geo_df.head(limit)
+                print(f"  ⚠️  Limited to first {limit:,} records for testing")
         
-        for record in combined_records:
-            # Try to match by Parcel_ID first
-            parcel_id = record.get('parcel_id')
-            if not parcel_id and 'raw_Parcel ID' in record:
-                parcel_id = str(record['raw_Parcel ID']).strip()
+            # Create lookup by Parcel_ID and Location (NO CAMA_Link/Link - those don't exist in cleaned Excel/CSV)
+            geo_lookup_by_parcel = {}
+            geo_lookup_by_address = {}
+            for idx, row in geo_df.iterrows():
+                parcel_id = str(row.get('Parcel_ID', '')).strip() if pd.notna(row.get('Parcel_ID')) else None
+                location = str(row.get('Location', '')).strip() if pd.notna(row.get('Location')) else None
+                
+                if parcel_id and parcel_id != 'nan':
+                    geo_lookup_by_parcel[parcel_id] = row.to_dict()
+                if location:
+                    norm_addr = normalize_address(location)
+                    if norm_addr:
+                        if norm_addr not in geo_lookup_by_address:
+                            geo_lookup_by_address[norm_addr] = []
+                        geo_lookup_by_address[norm_addr].append(row.to_dict())
             
-            geo_record = None
-            if parcel_id and parcel_id in geo_lookup_by_parcel:
-                geo_record = geo_lookup_by_parcel[parcel_id]
-                matched_by_parcel += 1
-            else:
-                # Try to match by address
-                address = record.get('Property Address', '')
-                if address:
-                    norm_addr = normalize_address(address)
-                    if norm_addr in geo_lookup_by_address:
-                        # Take first match
-                        geo_record = geo_lookup_by_address[norm_addr][0]
-                        matched_by_address += 1
+            print(f"  ✅ Created lookups:")
+            print(f"     - Parcel_ID: {len(geo_lookup_by_parcel):,}")
+            print(f"     - Address: {len(geo_lookup_by_address):,}")
             
-            if geo_record:
-                # Add geometry data to record - prefer full Geometry_WKT, fallback to lat/lon
-                geometry_wkt = geo_record.get('Geometry_WKT')
-                if pd.notna(geometry_wkt) and geometry_wkt:
-                    record['geometry_wkt'] = str(geometry_wkt)
-                    record['has_geometry'] = True
-                    record['geometry_type'] = 'full'
-                elif pd.notna(geo_record.get('Latitude')) and pd.notna(geo_record.get('Longitude')):
-                    record['latitude'] = float(geo_record['Latitude'])
-                    record['longitude'] = float(geo_record['Longitude'])
-                    record['has_geometry'] = True
-                    record['geometry_type'] = 'point'
+            # Step 2: Read cleaned Excel
+            print("\n" + "=" * 80)
+            print("STEP 2: Reading Cleaned Excel")
+            print("=" * 80)
+            cleaned_df = read_cleaned_excel(str(cleaned_excel_path), limit=limit)
+            print(f"✅ Loaded {len(cleaned_df):,} records from cleaned Excel")
+            
+            # Step 3: Read raw CSV
+            print("\n" + "=" * 80)
+            print("STEP 3: Reading Raw CSV")
+            print("=" * 80)
+            raw_df, raw_lookup = read_raw_csv(str(raw_csv_path))
+            print(f"✅ Loaded {len(raw_df):,} records from CSV")
+            
+            # Step 4: Match Excel + CSV
+            print("\n" + "=" * 80)
+            print("STEP 4: Matching Excel + CSV")
+            print("=" * 80)
+            combined_records = match_and_combine(cleaned_df, raw_lookup)
+            print(f"✅ Combined {len(combined_records):,} records")
+            
+            # Step 5: Match with geodatabase Excel (add geometry)
+            print("\n" + "=" * 80)
+            print("STEP 5: Matching with Geodatabase Excel (adding geometry)")
+            print("=" * 80)
+            
+            matched_count = 0
+            unmatched_count = 0
+            matched_by_parcel = 0
+            matched_by_address = 0
+            
+            for record in combined_records:
+                # Try to match by Parcel_ID first
+                parcel_id = record.get('parcel_id')
+                if not parcel_id and 'raw_Parcel ID' in record:
+                    parcel_id = str(record['raw_Parcel ID']).strip()
+                
+                geo_record = None
+                if parcel_id and parcel_id in geo_lookup_by_parcel:
+                    geo_record = geo_lookup_by_parcel[parcel_id]
+                    matched_by_parcel += 1
+                else:
+                    # Try to match by address
+                    address = record.get('Property Address', '')
+                    if address:
+                        norm_addr = normalize_address(address)
+                        if norm_addr in geo_lookup_by_address:
+                            # Take first match
+                            geo_record = geo_lookup_by_address[norm_addr][0]
+                            matched_by_address += 1
+                
+                if geo_record:
+                    # Add geometry data to record - prefer full Geometry_WKT, fallback to lat/lon
+                    geometry_wkt = geo_record.get('Geometry_WKT')
+                    if pd.notna(geometry_wkt) and geometry_wkt:
+                        record['geometry_wkt'] = str(geometry_wkt)
+                        record['has_geometry'] = True
+                        record['geometry_type'] = 'full'
+                    elif pd.notna(geo_record.get('Latitude')) and pd.notna(geo_record.get('Longitude')):
+                        record['latitude'] = float(geo_record['Latitude'])
+                        record['longitude'] = float(geo_record['Longitude'])
+                        record['has_geometry'] = True
+                        record['geometry_type'] = 'point'
+                    else:
+                        record['has_geometry'] = False
+                        record['geometry_type'] = None
+                    record['geo_parcel_id'] = geo_record.get('Parcel_ID')
+                    matched_count += 1
                 else:
                     record['has_geometry'] = False
                     record['geometry_type'] = None
-                record['geo_parcel_id'] = geo_record.get('Parcel_ID')
-                matched_count += 1
-            else:
-                record['has_geometry'] = False
-                record['geometry_type'] = None
-                unmatched_count += 1
-        
-        print(f"✅ Matched: {matched_count:,} | ❌ Unmatched: {unmatched_count:,}")
-        print(f"   Match breakdown:")
-        print(f"     - By Parcel_ID: {matched_by_parcel:,}")
-        print(f"     - By Address: {matched_by_address:,}")
+                    unmatched_count += 1
+            
+            print(f"✅ Matched: {matched_count:,} | ❌ Unmatched: {unmatched_count:,}")
+            print(f"   Match breakdown:")
+            print(f"     - By Parcel_ID: {matched_by_parcel:,}")
+            print(f"     - By Address: {matched_by_address:,}")
+            
+            if limit is None:
+                _save_parse_cache(
+                    municipality,
+                    geodatabase_excel_path,
+                    cleaned_excel_path,
+                    raw_csv_path,
+                    geodatabase_total_count=geodatabase_total_count,
+                    matched_count=matched_count,
+                    unmatched_count=unmatched_count,
+                    combined_records=combined_records,
+                )
         
         # Step 6: Import to database with bulk operations
         print("\n" + "=" * 80)
@@ -729,10 +851,11 @@ def import_town_optimized(
         
         # Export "not added" records to Excel per town
         _OUTPUT_DIR = Path(__file__).parent / "logs"
-        _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        _NOT_ADDED_DIR = _OUTPUT_DIR / "Not Added"
+        _NOT_ADDED_DIR.mkdir(parents=True, exist_ok=True)
         if not_added_records:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_path = _OUTPUT_DIR / f"{municipality.replace(' ', '_')}_Not_Added_{ts}.xlsx"
+            out_path = _NOT_ADDED_DIR / f"{municipality.replace(' ', '_')}_Not_Added_{ts}.xlsx"
             df_not_added = pd.DataFrame(not_added_records)
             df_not_added.to_excel(out_path, index=False, engine="openpyxl")
             print(f"\n📋 Not-added export: {len(not_added_records):,} records → {out_path}")

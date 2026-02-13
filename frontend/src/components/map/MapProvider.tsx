@@ -28,7 +28,7 @@ export function MapProvider(props: MapComponentProps) {
     console.error('Mapbox error, falling back to Leaflet:', error)
     setMapboxError(error.message)
     setUseMapbox(false)
-    // Track fallback event
+    // Track fallback event (fire-and-forget; trackMapLoad returns void)
     analyticsApi.trackMapLoad({
       map_type: 'leaflet',
       viewport: {
@@ -36,7 +36,7 @@ export function MapProvider(props: MapComponentProps) {
         zoom: props.zoom,
       },
       fallback_reason: `Mapbox failed: ${error.message}`
-    }).catch(() => {})
+    })
   }
 
   // Try Mapbox if configured and no error

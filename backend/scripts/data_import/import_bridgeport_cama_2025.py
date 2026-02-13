@@ -136,6 +136,26 @@ def read_cleaned_excel(file_path: str, limit: Optional[int] = None) -> pd.DataFr
     
     return df
 
+
+def _has_loc_number_street_columns(df: pd.DataFrame) -> bool:
+    """True if CSV has Sherman-style columns: Loc # (number) and Loc STREET (street)."""
+    n, s = _get_loc_number_street_columns(df)
+    return n is not None and s is not None
+
+
+def _get_loc_number_street_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
+    """Return (number_column, street_column) for Sherman format, or (None, None)."""
+    num_col = None
+    street_col = None
+    for c in df.columns:
+        name = str(c).strip().lower()
+        if 'loc' in name and '#' in name:
+            num_col = c
+        if 'loc' in name and 'street' in name:
+            street_col = c
+    return (num_col, street_col)
+
+
 def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
     """
     Read raw CSV file, extract needed columns, create lookup by normalized address
@@ -219,19 +239,31 @@ def read_raw_csv(file_path: str) -> Tuple[pd.DataFrame, Dict[str, Dict]]:
         df['Property Address'] = df['Property Address'].str.strip()
         address_col = 'Property Address'
         column_mapping['Property Address'] = 'Property Address'
-    elif 'ADRNO' in df.columns and 'ADRSTR' in df.columns:
+    elif col_lower.get('adrno') and col_lower.get('adrstr'):
         # Bethel format: ADRNO (address number), ADRSTR (street), ADRADD (additional)
-        print(f"  Constructing address from ADRNO, ADRSTR, ADRADD (Bethel format)...")
+        adrno_col = col_lower['adrno']
+        adrstr_col = col_lower['adrstr']
+        print(f"  Constructing address from {adrno_col}, {adrstr_col} (Bethel format)...")
         df['Property Address'] = (
-            df['ADRNO'].astype(str).str.strip() + ' ' + 
-            df['ADRSTR'].astype(str).str.strip()
+            df[adrno_col].astype(str).str.strip() + ' ' +
+            df[adrstr_col].astype(str).str.strip()
         )
-        # Add ADRADD if present and not empty
-        if 'ADRADD' in df.columns:
-            adr_add = df['ADRADD'].astype(str).str.strip()
+        adradd_col = col_lower.get('adradd')
+        if adradd_col is not None:
+            adr_add = df[adradd_col].astype(str).str.strip()
             df['Property Address'] = df['Property Address'] + ' ' + adr_add
             df['Property Address'] = df['Property Address'].str.replace(r'\s+', ' ', regex=True).str.strip()
         df['Property Address'] = df['Property Address'].str.strip()
+        address_col = 'Property Address'
+        column_mapping['Property Address'] = 'Property Address'
+    elif _has_loc_number_street_columns(df):
+        # Sherman format: Loc # (address number), Loc STREET (address street)
+        loc_num_col, loc_street_col = _get_loc_number_street_columns(df)
+        print(f"  Constructing address from {loc_num_col}, {loc_street_col} (Sherman format)...")
+        df['Property Address'] = (
+            df[loc_num_col].astype(str).str.strip() + ' ' +
+            df[loc_street_col].astype(str).str.strip()
+        ).str.replace(r'\s+', ' ', regex=True).str.strip()
         address_col = 'Property Address'
         column_mapping['Property Address'] = 'Property Address'
     else:

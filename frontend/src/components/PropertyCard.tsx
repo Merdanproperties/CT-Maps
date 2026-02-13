@@ -5,10 +5,13 @@ import './PropertyCard.css'
 
 interface PropertyCardProps {
   property: Property | any // Accept any to handle API responses, will be normalized
+  /** Single click (e.g. for legacy or other UIs) */
   onClick?: () => void
+  /** Double click to open details - allows single click to select/copy text on the card */
+  onDoubleClick?: () => void
 }
 
-export default function PropertyCard({ property, onClick }: PropertyCardProps) {
+export default function PropertyCard({ property, onClick, onDoubleClick }: PropertyCardProps) {
   // Development safety check - validates data structure in dev mode
   DevelopmentSafety.validatePropertyBeforeRender(property, 'PropertyCard')
   
@@ -65,7 +68,12 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
   }
 
   return (
-    <div className="property-card" onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
+    <div
+      className="property-card"
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      style={{ cursor: onClick || onDoubleClick ? 'pointer' : 'default' }}
+    >
       {/* Checkbox */}
       <input type="checkbox" className="property-card-checkbox" />
 
@@ -84,6 +92,22 @@ export default function PropertyCard({ property, onClick }: PropertyCardProps) {
         <span className="owner-label">Owner:</span>
         <span className="owner-value">{getSafeValue('owner_name', 'N/A')}</span>
       </div>
+
+      {/* Owner Mailing Address */}
+      {(() => {
+        const addr = getSafeValue('owner_address')
+        const city = getSafeValue('owner_city')
+        const state = getSafeValue('owner_state')
+        if (!addr && !city && !state) return null
+        const parts = [addr, city, state].filter(Boolean)
+        if (parts.length === 0) return null
+        return (
+          <div className="property-owner-mailing">
+            <Mail size={14} className="owner-mailing-icon" aria-hidden />
+            <span className="owner-mailing-value">{parts.join(', ')}</span>
+          </div>
+        )
+      })()}
 
       {/* Details - Compact pairs */}
       <div className="property-details-compact">

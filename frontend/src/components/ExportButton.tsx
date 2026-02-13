@@ -187,24 +187,19 @@ export default function ExportButton({ filterType, filterParams, resultCount }: 
   }
 
   // #region agent log
-  // Log component render state
   useEffect(() => {
-    console.log('📊 [ExportButton] Component rendered:', { resultCount, isExporting, filterType, hasFilterParams: !!filterParams, municipality: filterParams?.municipality })
+    if (typeof import.meta.env.VITE_AGENT_INGEST_URL !== 'string') return
     try {
-      (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ExportButton.tsx:171',message:'Component rendered',data:{resultCount,isExporting,filterType,hasFilterParams:!!filterParams,municipality:filterParams?.municipality},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{}));
-      
-      // Check button state after render
+      fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ExportButton.tsx:171',message:'Component rendered',data:{resultCount,isExporting,filterType,hasFilterParams:!!filterParams,municipality:filterParams?.municipality},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
       setTimeout(() => {
         const button = document.querySelector('.export-button') as HTMLButtonElement
         const menu = document.getElementById('export-menu')
         if (button) {
-          (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ExportButton.tsx:180',message:'Button DOM state check',data:{buttonExists:!!button,buttonDisabled:button.disabled,buttonVisible:button.offsetParent !== null,menuExists:!!menu,menuVisible:menu?.classList.contains('show')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{}));
+          fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ExportButton.tsx:180',message:'Button DOM state check',data:{buttonExists:!!button,buttonDisabled:button.disabled,buttonVisible:button.offsetParent !== null,menuExists:!!menu,menuVisible:menu?.classList.contains('show')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
         }
       }, 100)
-    } catch (e) {
-      console.warn('Debug log failed:', e)
-    }
-  }, [resultCount, isExporting, filterType, filterParams]);
+    } catch (_) {}
+  }, [resultCount, isExporting, filterType, filterParams])
   // #endregion
 
   return (

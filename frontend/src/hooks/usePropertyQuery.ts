@@ -89,17 +89,6 @@ async function fetchProperties(
     if (filterParams.owner_city) searchParams.owner_city = filterParams.owner_city
     if (filterParams.owner_state) searchParams.owner_state = filterParams.owner_state
     
-    // Debug logging
-    if (filterParams.municipality) {
-      console.log('🔍 [buildSearchParams] Building params with municipality:', {
-        municipality: searchParams.municipality,
-        time_since_sale: searchParams.time_since_sale,
-        hasBbox: 'bbox' in searchParams,
-        bboxValue: searchParams.bbox,
-        allParams: { ...searchParams }
-      })
-    }
-    
     return searchParams
   }
 
@@ -114,6 +103,10 @@ async function fetchProperties(
       ? filterParams.municipality.join(',')
       : filterParams.municipality
     const baseParams: any = { municipality: municipalityParam, geometry_mode: 'centroid' }
+    if (searchQuery) {
+      const normalizedQ = normalizeSearchQuery(searchQuery)
+      if (normalizedQ.length > 0) baseParams.q = normalizedQ
+    }
     const searchParams = buildSearchParams(baseParams)
     if (params.bbox) {
       searchParams.bbox = params.bbox
@@ -358,13 +351,13 @@ export function usePropertyQuery(params: PropertyQueryParams) {
       }
     },
     enabled,
-    staleTime: filterParams?.municipality ? 0 : 10000, // Always consider data stale when municipality is set to force fresh queries
+    staleTime: filterParams?.municipality ? 3000 : 15000, // 3s when town set (fewer duplicate refetches), 15s for bbox-only
     refetchOnWindowFocus: false,
     retry: 1,
     retryDelay: 1000,
     gcTime: 300000, // Keep data in cache for 5 minutes
-    refetchOnMount: filterParams?.municipality ? 'always' : true, // Always refetch on mount when municipality is set
-    placeholderData: undefined, // Don't use placeholder data - always fetch fresh
+    refetchOnMount: filterParams?.municipality ? true : true,
+    placeholderData: undefined,
   })
   
   return queryResult

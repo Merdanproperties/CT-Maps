@@ -6,13 +6,53 @@ import { propertyApi, Property, analyticsApi } from '../api/client'
 import { usePropertyQuery } from '../hooks/usePropertyQuery'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import PropertyCard from '../components/PropertyCard'
-import TopFilterBar from '../components/TopFilterBar'
+import TopFilterBar, { FilterChangeOptions } from '../components/TopFilterBar'
 import ExportButton from '../components/ExportButton'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { X, ChevronRight, ChevronLeft, PanelRight, PanelLeft, XCircle } from 'lucide-react'
+import { X, ChevronRight, ChevronLeft, PanelRight, PanelLeft, XCircle, Plus, Minus } from 'lucide-react'
 import { MapProvider } from '../components/map/MapProvider'
 import { normalizeSearchQuery } from '../utils/searchUtils'
 import './MapView.css'
+
+const MAP_VIEW_STORAGE_KEY = 'ct-maps-map-view-state'
+
+interface PersistedMapState {
+  searchQuery?: string
+  addressTownQuery?: string
+  ownerSearchQuery?: string
+  filterType?: string | null
+  filterParams?: Record<string, unknown>
+  center?: [number, number]
+  zoom?: number
+  showPropertyList?: boolean
+  selectedPropertyId?: string | null
+}
+
+/** Get center and zoom from a property's geometry so we can persist the exact view when opening details (avoids stale state). */
+function getCenterAndZoomFromProperty(property: Property): { center: [number, number]; zoom: number } | null {
+  const geom = property.geometry?.geometry
+  if (!geom) return null
+  if (geom.type === 'Point' && geom.coordinates?.length >= 2) {
+    return { center: [geom.coordinates[1], geom.coordinates[0]], zoom: 18 }
+  }
+  if (geom.type === 'Polygon' && geom.coordinates?.[0]?.[0]) {
+    const coords = geom.coordinates[0]
+    const [lng, lat] = coords.reduce(
+      (acc: [number, number], c: number[]) => [acc[0] + c[0], acc[1] + c[1]],
+      [0, 0]
+    )
+    return { center: [lat / coords.length, lng / coords.length], zoom: 18 }
+  }
+  if (geom.type === 'MultiPolygon' && geom.coordinates?.[0]?.[0]?.[0]) {
+    const coords = geom.coordinates[0][0]
+    const [lng, lat] = coords.reduce(
+      (acc: [number, number], c: number[]) => [acc[0] + c[0], acc[1] + c[1]],
+      [0, 0]
+    )
+    return { center: [lat / coords.length, lng / coords.length], zoom: 18 }
+  }
+  return null
+}
 
 // Fix for default marker icons in React-Leaflet (needed for LeafletMap component)
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -31,9 +71,18 @@ export default function MapView() {
   const [filterType, setFilterType] = useState<string | null>(null)
   const [filterParams, setFilterParams] = useState<any>({})
   const [showPropertyList, setShowPropertyList] = useState(false)
-  const [searchQuery, setSearchQuery] = useState<string>('')
-  const debouncedSearchQuery = useDebouncedValue(searchQuery, 350)
+  const [searchQuery, setSearchQuery] = useState<string>('') // single query from nav/restore
+  const [addressTownQuery, setAddressTownQuery] = useState<string>('') // Address or town bar
+  const [ownerSearchQuery, setOwnerSearchQuery] = useState<string>('') // Search by owner bar
+  const effectiveSearchQuery = useMemo(() => {
+    const a = (addressTownQuery ?? '').trim()
+    const o = (ownerSearchQuery ?? '').trim()
+    if (a || o) return [a, o].filter(Boolean).join('|') // backend ANDs pipe-separated terms
+    return searchQuery
+  }, [addressTownQuery, ownerSearchQuery, searchQuery])
+  const debouncedSearchQuery = useDebouncedValue(effectiveSearchQuery, 350)
   const [mapBounds, setMapBounds] = useState<{ north: number; south: number; east: number; west: number } | null>(null)
+  const debouncedMapBounds = useDebouncedValue(mapBounds, 350) // Reduces duplicate /api/search/ when map pans/zooms
   const [isMapReady, setIsMapReady] = useState(false)
   const [searchEnabled, setSearchEnabled] = useState(false) // Defer bbox search until after options load
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -45,6 +94,9 @@ export default function MapView() {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const selectedPropertyScrollRef = useRef<HTMLDivElement | null>(null)
   const mapViewRef = useRef<HTMLDivElement | null>(null)
+  const selectedPropertyIdToRestoreRef = useRef<string | null>(null)
+  const restoredFromStorageRef = useRef(false)
+  const [hasCheckedRestore, setHasCheckedRestore] = useState(false)
   const [municipalityBoundaries, setMunicipalityBoundaries] = useState<Array<{ name: string; north: number; south: number; east: number; west: number }>>([])
 
   // Keep --total-header-height in sync with actual nav bar height so sidebar is not overlapped
@@ -85,6 +137,8 @@ export default function MapView() {
           setZoom(newZoom || 10)
         }
         setSearchQuery(searchQuery)
+        setAddressTownQuery('')
+        setOwnerSearchQuery('')
         setFilterParams({}) // Clear municipality filter for owner searches
         setShowPropertyList(true)
         setFilterType(null)
@@ -93,30 +147,15 @@ export default function MapView() {
         // Clear location state after processing
         window.history.replaceState({}, document.title)
       }
-      // If municipality provided, filter by it and show property list
-      else if (municipality) {
-        console.log('📍 Setting municipality from location.state:', municipality)
-      if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
-        setCenter([newCenter[0], newCenter[1]])
-          setZoom(newZoom || 11)
-        }
-        setFilterParams({ municipality: municipality })
-        setSearchQuery('') // Clear search query when using municipality
-        setShowPropertyList(true)
-        setFilterType(null) // Clear any filter type when searching by municipality
-        setSelectedProperty(null) // Clear selected property when showing list
-        
-        // Clear location state after processing
-        window.history.replaceState({}, document.title)
-      }
-      // If address provided, search for the property and center on its geometry
+      // If address provided (including address + municipality from dropdown), search for property and center map
       else if (address) {
         // #region agent log
         (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:191',message:'Address path triggered',data:{address,newCenter,newZoom,centerType:typeof newCenter,centerIsArray:Array.isArray(newCenter)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{}));
         // #endregion
         console.log('🔍 Searching for address from dropdown:', address)
-        // Clear search query and filters first
         setSearchQuery('')
+        setAddressTownQuery('')
+        setOwnerSearchQuery('')
         setFilterParams({})
         setFilterType(null)
         setShowPropertyList(false);
@@ -125,7 +164,12 @@ export default function MapView() {
         // #region agent log
         (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:203',message:'Search API call started',data:{searchAddress:address,autocompleteCenter:newCenter},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{}));
         // #endregion
-        propertyApi.search({ q: address, page_size: 50 }).then(result => {
+        const municipalityFromState = location.state?.municipality
+        propertyApi.search({
+          q: address,
+          municipality: municipalityFromState || undefined,
+          page_size: 50,
+        }).then(result => {
           // #region agent log
           (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:203',message:'Search API result',data:{total:result.total,propertiesCount:result.properties?.length,firstPropertyId:result.properties?.[0]?.id,firstPropertyAddress:result.properties?.[0]?.address,firstPropertyMunicipality:result.properties?.[0]?.municipality,allAddresses:result.properties?.map(p=>p.address),allMunicipalities:result.properties?.map(p=>p.municipality)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{}));
           // #endregion
@@ -251,18 +295,22 @@ export default function MapView() {
         // Clear location state after processing
         window.history.replaceState({}, document.title)
       }
-        // If municipality provided, filter by it and show property list
+      // If municipality only (e.g. user selected a town from dropdown, no address)
       else if (municipality) {
-          console.log('📍 Setting municipality from location.state:', municipality)
+        console.log('📍 Setting municipality from location.state:', municipality)
         if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
           setCenter([newCenter[0], newCenter[1]])
           setZoom(newZoom || 11)
         }
-          setFilterParams({ municipality: municipality })
-          setSearchQuery('') // Clear search query when using municipality
-          setShowPropertyList(true)
-          setFilterType(null) // Clear any filter type when searching by municipality
-        }
+        setFilterParams({ municipality: municipality })
+        setSearchQuery('')
+        setAddressTownQuery('')
+        setOwnerSearchQuery('')
+        setShowPropertyList(true)
+        setFilterType(null)
+        setSelectedProperty(null)
+        window.history.replaceState({}, document.title)
+      }
       // If just center/zoom provided (e.g., state selection)
       else if (newCenter && Array.isArray(newCenter) && newCenter.length === 2) {
         setCenter([newCenter[0], newCenter[1]])
@@ -272,6 +320,120 @@ export default function MapView() {
       }
     }
   }, [location.state])
+
+  // Restore search/filters/map position when returning to map (e.g. back from property detail).
+  // Run before first map render so the map is created with correct center/zoom (avoids MapUpdater skipping due to isUpdatingRef).
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:restore-effect',message:'Restore effect ran',data:{hasLocationState:!!location.state,pathname:location.pathname},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    if (location.state) {
+      setHasCheckedRestore(true)
+      return
+    }
+    try {
+      const raw = sessionStorage.getItem(MAP_VIEW_STORAGE_KEY)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:restore-read',message:'Read sessionStorage',data:{rawLength:raw?.length??0,rawPreview:raw?.slice(0,120)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      if (!raw) {
+        setHasCheckedRestore(true)
+        return
+      }
+      const s = JSON.parse(raw) as PersistedMapState
+      if (!s || typeof s !== 'object') {
+        setHasCheckedRestore(true)
+        return
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:restore-parsed',message:'Parsed stored state',data:{center:s.center,zoom:s.zoom,selectedPropertyId:s.selectedPropertyId},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      restoredFromStorageRef.current = true
+      if (Array.isArray(s.center) && s.center.length === 2 && s.center.every((n) => typeof n === 'number')) {
+        setCenter([s.center[0], s.center[1]])
+      }
+      if (typeof s.zoom === 'number') setZoom(s.zoom)
+      if (typeof s.searchQuery === 'string') setSearchQuery(s.searchQuery)
+      if (typeof s.addressTownQuery === 'string') setAddressTownQuery(s.addressTownQuery)
+      if (typeof s.ownerSearchQuery === 'string') setOwnerSearchQuery(s.ownerSearchQuery)
+      if (s.filterType !== undefined) setFilterType(s.filterType ?? null)
+      if (s.filterParams && typeof s.filterParams === 'object') setFilterParams(s.filterParams)
+      if (typeof s.showPropertyList === 'boolean') setShowPropertyList(s.showPropertyList)
+      if (typeof s.selectedPropertyId === 'string' && s.selectedPropertyId) {
+        selectedPropertyIdToRestoreRef.current = s.selectedPropertyId
+      }
+      setHasCheckedRestore(true)
+    } catch (_) {
+      setHasCheckedRestore(true)
+    }
+  }, [])
+
+  // Log center/zoom when map is about to mount (H4: verify state passed to map)
+  useEffect(() => {
+    if (!hasCheckedRestore) return
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:map-mount-state',message:'State when map will mount',data:{center,zoom},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+  }, [hasCheckedRestore, center, zoom])
+
+  // Persist search/filters/map position so they survive navigation to property and back.
+  // Only run after we've checked restore (hasCheckedRestore) so we don't overwrite good stored state
+  // with default state on the first render when returning from a property page.
+  useEffect(() => {
+    if (!hasCheckedRestore) return
+    const state: PersistedMapState = {
+      searchQuery,
+      addressTownQuery: addressTownQuery || undefined,
+      ownerSearchQuery: ownerSearchQuery || undefined,
+      filterType,
+      filterParams: Object.keys(filterParams).length ? filterParams : undefined,
+      center,
+      zoom,
+      showPropertyList,
+      selectedPropertyId: selectedProperty?.id != null ? String(selectedProperty.id) : null,
+    }
+    try {
+      sessionStorage.setItem(MAP_VIEW_STORAGE_KEY, JSON.stringify(state))
+    } catch (_) {
+      /* ignore quota or other storage errors */
+    }
+  }, [hasCheckedRestore, searchQuery, addressTownQuery, ownerSearchQuery, filterType, filterParams, center, zoom, showPropertyList, selectedProperty])
+
+  // Save map state with the property we're opening so Back restores to the same view.
+  // When opening a property card, we use the property's geometry for center/zoom so we don't rely on
+  // state that may not have updated yet (list-item click and card click can happen in same tick).
+  const saveMapStateAndNavigate = useCallback(
+    (propertyId: string, property?: Property | null) => {
+      try {
+        let centerToSave = center
+        let zoomToSave = zoom
+        if (property) {
+          const fromProp = getCenterAndZoomFromProperty(property)
+          if (fromProp) {
+            centerToSave = fromProp.center
+            zoomToSave = fromProp.zoom
+          }
+        }
+        const state: PersistedMapState = {
+          searchQuery,
+          addressTownQuery: addressTownQuery || undefined,
+          ownerSearchQuery: ownerSearchQuery || undefined,
+          filterType,
+          filterParams: Object.keys(filterParams).length ? filterParams : undefined,
+          center: centerToSave,
+          zoom: zoomToSave,
+          showPropertyList,
+          selectedPropertyId: propertyId,
+        }
+        sessionStorage.setItem(MAP_VIEW_STORAGE_KEY, JSON.stringify(state))
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:saveMapStateAndNavigate',message:'Saved state before navigate',data:{propertyId,hasProperty:!!property,centerToSave,zoomToSave},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+        // #endregion
+      } catch (_) {
+        /* ignore */
+      }
+      navigate(`/property/${propertyId}`)
+    },
+    [navigate, searchQuery, addressTownQuery, ownerSearchQuery, filterType, filterParams, center, zoom, showPropertyList]
+  )
 
   // Get bounding box for current viewport. When municipality is set, use bbox only at zoom 15+ (viewport-within-town).
   const bbox = useMemo(() => {
@@ -316,13 +478,15 @@ export default function MapView() {
     filterType,
     filterParams,
     searchQuery: debouncedSearchQuery,
-    bbox: passViewportToQuery ? bbox : undefined,
-    mapBounds: passViewportToQuery ? mapBounds : null,
+    bbox: passViewportToQuery && !debouncedMapBounds ? bbox : undefined,
+    mapBounds: passViewportToQuery ? debouncedMapBounds : null,
     center: passViewportToQuery ? center : undefined,
     zoom: passViewportToQuery ? zoom : undefined,
   })
 
   // When municipality filter is set (single or multiple), zoom map and store boundaries for outline
+  // Skip zoom only on the first run after restoring from sessionStorage (so back-from-property keeps position).
+  // Clear the restore flag immediately so any user-driven town change (selecting a different town) always zooms.
   useEffect(() => {
     const m = filterParams?.municipality
     if (!m) {
@@ -335,11 +499,18 @@ export default function MapView() {
       return
     }
 
+    const skipZoom = restoredFromStorageRef.current
+    restoredFromStorageRef.current = false // so next run (e.g. user picks different town) always zooms
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:municipality-effect',message:'Municipality effect ran',data:{skipZoom,hasMunicipality:!!m},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
+
     setShowPropertyList(true)
     setMapBounds(null)
+    if (!skipZoom) setSelectedProperty(null) // clear selection when user switched town; keep when restoring from storage
     fetchingMunicipalityBoundsRef.current = true
 
-    const fetchAndZoom = (boundsList: Array<{ min_lat: number; min_lng: number; max_lat: number; max_lng: number }>) => {
+    const fetchAndZoom = (boundsList: Array<{ min_lat: number; min_lng: number; max_lat: number; max_lng: number }>, skipCenterZoom: boolean) => {
       setMunicipalityBoundaries(
         boundsList.map((b, i) => ({
           name: townNames[i] ?? '',
@@ -349,41 +520,59 @@ export default function MapView() {
           west: b.min_lng,
         }))
       )
-      const minLat = Math.min(...boundsList.map((b) => b.min_lat))
-      const minLng = Math.min(...boundsList.map((b) => b.min_lng))
-      const maxLat = Math.max(...boundsList.map((b) => b.max_lat))
-      const maxLng = Math.max(...boundsList.map((b) => b.max_lng))
-      const centerLat = (minLat + maxLat) / 2
-      const centerLng = (minLng + maxLng) / 2
-      const latRange = maxLat - minLat
-      const lngRange = maxLng - minLng
-      const maxRange = Math.max(latRange, lngRange)
-      let zoomLevel = 12
-      if (maxRange > 0.2) zoomLevel = 8
-      else if (maxRange > 0.1) zoomLevel = 9
-      else if (maxRange > 0.05) zoomLevel = 10
-      else if (maxRange > 0.02) zoomLevel = 11
-      else if (maxRange > 0.01) zoomLevel = 12
-      else if (maxRange > 0.005) zoomLevel = 13
-      else zoomLevel = 14
-      setCenter([centerLat, centerLng])
-      setZoom(zoomLevel)
+      if (!skipCenterZoom) {
+        const minLat = Math.min(...boundsList.map((b) => b.min_lat))
+        const minLng = Math.min(...boundsList.map((b) => b.min_lng))
+        const maxLat = Math.max(...boundsList.map((b) => b.max_lat))
+        const maxLng = Math.max(...boundsList.map((b) => b.max_lng))
+        const centerLat = (minLat + maxLat) / 2
+        const centerLng = (minLng + maxLng) / 2
+        const latRange = maxLat - minLat
+        const lngRange = maxLng - minLng
+        const maxRange = Math.max(latRange, lngRange)
+        let zoomLevel = 12
+        if (maxRange > 0.2) zoomLevel = 8
+        else if (maxRange > 0.1) zoomLevel = 9
+        else if (maxRange > 0.05) zoomLevel = 10
+        else if (maxRange > 0.02) zoomLevel = 11
+        else if (maxRange > 0.01) zoomLevel = 12
+        else if (maxRange > 0.005) zoomLevel = 13
+        else zoomLevel = 14
+        setCenter([centerLat, centerLng])
+        setZoom(zoomLevel)
+      }
       setTimeout(() => {
-        setMapBounds({ north: maxLat, south: minLat, east: maxLng, west: minLng })
+        if (!skipCenterZoom) {
+          const minLat = Math.min(...boundsList.map((b) => b.min_lat))
+          const minLng = Math.min(...boundsList.map((b) => b.min_lng))
+          const maxLat = Math.max(...boundsList.map((b) => b.max_lat))
+          const maxLng = Math.max(...boundsList.map((b) => b.max_lng))
+          setMapBounds({ north: maxLat, south: minLat, east: maxLng, west: minLng })
+        }
         fetchingMunicipalityBoundsRef.current = false
+        restoredFromStorageRef.current = false
       }, 100)
     }
 
     if (townNames.length === 1) {
       propertyApi.getMunicipalityBounds(townNames[0])
-        .then((bounds) => fetchAndZoom([bounds]))
-        .catch(() => { fetchingMunicipalityBoundsRef.current = false })
+        .then((bounds) => fetchAndZoom([bounds], skipZoom))
+        .catch(() => { fetchingMunicipalityBoundsRef.current = false; restoredFromStorageRef.current = false })
     } else {
       Promise.all(townNames.map((name) => propertyApi.getMunicipalityBounds(name)))
-        .then(fetchAndZoom)
-        .catch(() => { fetchingMunicipalityBoundsRef.current = false })
+        .then((boundsList) => fetchAndZoom(boundsList, skipZoom))
+        .catch(() => { fetchingMunicipalityBoundsRef.current = false; restoredFromStorageRef.current = false })
     }
   }, [filterParams?.municipality])
+
+  // Restore selected property from sessionStorage once the list has loaded
+  useEffect(() => {
+    const id = selectedPropertyIdToRestoreRef.current
+    if (!id || !data?.properties?.length) return
+    const prop = data.properties.find((p) => String(p.id) === id)
+    if (prop) setSelectedProperty(prop)
+    selectedPropertyIdToRestoreRef.current = null
+  }, [data?.properties])
 
   // Show property list when we have search criteria
   useEffect(() => {
@@ -392,13 +581,13 @@ export default function MapView() {
       } 
   }, [filterParams.municipality, searchQuery, filterType])
 
-  // Track analytics when data changes
+  // Track analytics when data changes (fire-and-forget, does not block UI)
   useEffect(() => {
     if (data && data.total > 0) {
-           analyticsApi.trackSearch({
-             filter_type: filterType || undefined,
+      analyticsApi.trackSearch({
+        filter_type: filterType || undefined,
         result_count: data.total || 0,
-           }).catch(() => {})
+      })
     }
   }, [data, filterType])
 
@@ -458,6 +647,8 @@ export default function MapView() {
     console.log('🖱️ Property clicked:', property.id, property.address)
     setShowPropertyList(false)
     setSearchQuery('')
+    setAddressTownQuery('')
+    setOwnerSearchQuery('')
     setSelectedProperty(property)
 
     // If viewport centroid (Point), fetch full property so map can draw polygon and sidebar has full details
@@ -495,7 +686,7 @@ export default function MapView() {
     }
   }, [setCenter, setZoom])
 
-  const handleFilterChange = useCallback((filter: string, value: any) => {
+  const handleFilterChange = useCallback((filter: string, value: any, options?: FilterChangeOptions) => {
     // If value is null, clear the filter
     if (value === null || value === 'All' || value === '') {
       if (filter === 'leadTypes') {
@@ -678,14 +869,15 @@ export default function MapView() {
       })
       setFilterType(null) // Clear lead type filter when using zoning
     } else if (filter === 'ownerAddress') {
-      // Owner mailing address - single text input
+      // Owner mailing address - single text input; use exact value from dropdown to avoid 461 vs 481 mix-up
       // When typing, use searchQuery for real-time results; preserve town(s) so search stays scoped
       if (value && value !== 'Clear' && value !== null && value !== undefined) {
         const normalizedValue = normalizeSearchQuery(String(value))
         if (normalizedValue.length > 0) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MapView.tsx:ownerAddress',message:'Mailing address filter',data:{trimmedLen:normalizedValue.length,trimmedSlice:normalizedValue.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3,H4'})}).catch(()=>{});
-          // #endregion
+          if (options?.center && options.center.length === 2) {
+            setCenter([options.center[0], options.center[1]])
+            setZoom(options.zoom ?? 10)
+          }
           setSearchQuery(normalizedValue)
           setShowPropertyList(true)
           setSidebarCollapsed(false)
@@ -912,10 +1104,19 @@ export default function MapView() {
     return String(value)
   }
 
-  // Get active filters for display
+  // Get active filters for display (all three search bars: Address/town, Owner, Mailing Address)
   const getActiveFilters = () => {
     const activeFilters: Array<{ label: string; value: string }> = []
-    
+    const addr = (addressTownQuery ?? '').trim()
+    const owner = (ownerSearchQuery ?? '').trim()
+    const single = (searchQuery ?? '').trim()
+    const sameAsOwnerAddress = (v: string) => filterParams.owner_address && v === (filterParams.owner_address as string).trim()
+
+    if (addr) activeFilters.push({ label: 'Address / Town', value: addr })
+    if (owner) activeFilters.push({ label: 'Owner', value: owner })
+    if (single && !addr && !owner && !sameAsOwnerAddress(single)) {
+      activeFilters.push({ label: 'Search', value: single })
+    }
     if (filterParams.municipality) {
       activeFilters.push({ label: 'Municipality', value: filterParams.municipality })
     }
@@ -955,6 +1156,8 @@ export default function MapView() {
     setFilterParams({})
     setFilterType(null)
     setSearchQuery('')
+    setAddressTownQuery('')
+    setOwnerSearchQuery('')
     // Note: We don't close the sidebar, just clear filters
   }, [])
 
@@ -1000,16 +1203,23 @@ export default function MapView() {
     <div ref={mapViewRef} className={`map-view ${isSidebarVisible ? 'with-sidebar' : ''}`}>
       <TopFilterBar 
         onFilterChange={handleFilterChange}
-        onSearchChange={(query) => {
-          // When user types in search bar, update searchQuery (normalized) and open sidebar (keep town filter so search is scoped to selected town(s))
+        onSearchChange={(query, source) => {
           const normalized = normalizeSearchQuery(query ?? '')
-          if (normalized.length > 0) {
-            setSearchQuery(normalized)
-            setShowPropertyList(true)
-            setSidebarCollapsed(false) // Open sidebar as user types
+          if (source === 'address_town') {
+            setAddressTownQuery(normalized)
+            if (normalized.length > 0) setSearchQuery('') // clear single-query so effective uses bar values
+          } else if (source === 'owner') {
+            setOwnerSearchQuery(normalized)
+            if (normalized.length > 0) setSearchQuery('')
           } else {
-            setSearchQuery('')
+            setSearchQuery(normalized)
           }
+          if (normalized.length > 0) {
+            setShowPropertyList(true)
+            setSidebarCollapsed(false)
+          }
+          if (normalized.length === 0 && source === 'address_town') setAddressTownQuery('')
+          if (normalized.length === 0 && source === 'owner') setOwnerSearchQuery('')
         }}
         onClearAllFilters={handleClearAllFilters}
         municipality={filterParams.municipality || null}
@@ -1059,7 +1269,7 @@ export default function MapView() {
               <div className="property-list-item selected">
                 <PropertyCard
                   property={selectedProperty}
-                  onClick={() => navigate(`/property/${selectedProperty.id}`)}
+                  onDoubleClick={() => saveMapStateAndNavigate(String(selectedProperty.id), selectedProperty)}
                 />
               </div>
             </div>
@@ -1115,6 +1325,8 @@ export default function MapView() {
                 onClick={() => {
                   setShowPropertyList(false)
                   setSearchQuery('')
+                  setAddressTownQuery('')
+                  setOwnerSearchQuery('')
                   setFilterParams({})
                   setSidebarCollapsed(false)
                 }}
@@ -1175,7 +1387,7 @@ export default function MapView() {
                   >
                     <PropertyCard
                       property={property}
-                      onClick={() => navigate(`/property/${property.id}`)}
+                      onDoubleClick={() => saveMapStateAndNavigate(String(property.id), property)}
                     />
                   </div>
                 ))}
@@ -1185,29 +1397,51 @@ export default function MapView() {
         </div>
       )}
 
-      <MapProvider
-        center={center}
-        zoom={zoom}
-        geoJsonData={geoJsonData}
-        selectedProperty={selectedProperty}
-        addressNumberMarkers={addressNumberMarkers}
-        onPropertyClick={handlePropertyClick}
-        onBoundsChange={handleBoundsChange}
-        setCenter={setCenter}
-        setZoom={setZoom}
-        setIsMapReady={setIsMapReady}
-        setMapBounds={setMapBounds}
-        mapRef={mapRef}
-        mapUpdatingRef={mapUpdatingRef}
-        geoJsonStyle={geoJsonStyle}
-        getCentroid={getCentroid}
-        properties={properties}
-        navigate={navigate}
-        municipalityBoundaries={municipalityBoundaries}
-      />
+      {!hasCheckedRestore ? (
+        <div className="map-container-wrapper" style={{ width: '100%', height: '100%', background: '#e5e7eb' }} aria-hidden />
+      ) : (
+        <MapProvider
+          center={center}
+          zoom={zoom}
+          geoJsonData={geoJsonData}
+          selectedProperty={selectedProperty}
+          addressNumberMarkers={addressNumberMarkers}
+          onPropertyClick={handlePropertyClick}
+          onBoundsChange={handleBoundsChange}
+          setCenter={setCenter}
+          setZoom={setZoom}
+          setIsMapReady={setIsMapReady}
+          setMapBounds={setMapBounds}
+          mapRef={mapRef}
+          mapUpdatingRef={mapUpdatingRef}
+          geoJsonStyle={geoJsonStyle}
+          getCentroid={getCentroid}
+          properties={properties}
+          navigate={navigate}
+          municipalityBoundaries={municipalityBoundaries}
+        />
+      )}
 
-      <div className="map-zoom-overlay" aria-hidden>
-        Zoom: {Math.round(zoom)}
+      <div className="map-zoom-overlay">
+        <button
+          type="button"
+          className="map-zoom-btn"
+          onClick={() => setZoom((z) => Math.min(20, z + 1))}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          <Plus size={18} />
+        </button>
+        <span className="map-zoom-value" aria-hidden>Zoom: {Math.round(zoom)}</span>
+        <button
+          type="button"
+          className="map-zoom-btn"
+          onClick={() => setZoom((z) => Math.max(1, z - 1))}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          <Minus size={18} />
+        </button>
       </div>
 
       {isLoading && !error && (

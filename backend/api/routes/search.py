@@ -85,20 +85,9 @@ async def search_properties(
     try:
         query = db.query(Property)
         
-        # Text search
+        # Text search: single term OR across fields; multiple terms (pipe-separated) AND together
+        # e.g. q="14 PEARL ST|GARCIA JOSE" => rows where (address/owner/... matches "14 PEARL ST") AND (matches "GARCIA JOSE")
         if q:
-            search_term = f"%{q}%"
-            # Normalize search query for better matching (handle ST vs Street, etc.)
-            # This helps match "12 Margerie st" with "12 MARGERIE ST" or "12 Margerie Street"
-            normalized_q = q.upper().strip()
-            # Replace common abbreviations with full words for better matching
-            normalized_q = normalized_q.replace(' ST ', ' STREET ').replace(' ST,', ' STREET,').replace(' ST', ' STREET')
-            normalized_q = normalized_q.replace(' AVE ', ' AVENUE ').replace(' AVE,', ' AVENUE,').replace(' AVE', ' AVENUE')
-            normalized_q = normalized_q.replace(' RD ', ' ROAD ').replace(' RD,', ' ROAD,').replace(' RD', ' ROAD')
-            normalized_q = normalized_q.replace(' DR ', ' DRIVE ').replace(' DR,', ' DRIVE,').replace(' DR', ' DRIVE')
-            normalized_search_term = f"%{normalized_q}%"
-            
-            # Build concatenated owner address for full address matching
             owner_full_address = func.concat(
                 func.coalesce(Property.owner_address, ''),
                 ', ',
@@ -106,17 +95,35 @@ async def search_properties(
                 ', ',
                 func.coalesce(Property.owner_state, '')
             )
-            query = query.filter(
-                or_(
-                    Property.address.ilike(search_term),
-                    func.upper(Property.address).ilike(normalized_search_term),  # Also try normalized search
-                    Property.owner_name.ilike(search_term),
-                    Property.owner_address.ilike(search_term),
-                    owner_full_address.ilike(search_term),  # Match full owner address string
-                    Property.parcel_id.ilike(search_term),
-                    Property.municipality.ilike(search_term)
-                )
+            address_plus_town = func.concat(
+                func.coalesce(Property.address, ''),
+                ' ',
+                func.coalesce(Property.municipality, '')
             )
+            terms = [t.strip() for t in q.split('|') if t.strip()]
+            if not terms:
+                terms = [q.strip()] if q.strip() else []
+            for one_q in terms:
+                search_term = f"%{one_q}%"
+                normalized_q = one_q.upper().strip()
+                normalized_q = normalized_q.replace(' ST ', ' STREET ').replace(' ST,', ' STREET,').replace(' ST', ' STREET')
+                normalized_q = normalized_q.replace(' AVE ', ' AVENUE ').replace(' AVE,', ' AVENUE,').replace(' AVE', ' AVENUE')
+                normalized_q = normalized_q.replace(' RD ', ' ROAD ').replace(' RD,', ' ROAD,').replace(' RD', ' ROAD')
+                normalized_q = normalized_q.replace(' DR ', ' DRIVE ').replace(' DR,', ' DRIVE,').replace(' DR', ' DRIVE')
+                normalized_search_term = f"%{normalized_q}%"
+                query = query.filter(
+                    or_(
+                        Property.address.ilike(search_term),
+                        func.upper(Property.address).ilike(normalized_search_term),
+                        address_plus_town.ilike(search_term),
+                        func.upper(address_plus_town).ilike(normalized_search_term),
+                        Property.owner_name.ilike(search_term),
+                        Property.owner_address.ilike(search_term),
+                        owner_full_address.ilike(search_term),
+                        Property.parcel_id.ilike(search_term),
+                        Property.municipality.ilike(search_term)
+                    )
+                )
         
         # Municipality filter - supports both single value and comma-separated values
         # Use TRIM so "Danbury" matches "Danbury ", " Danbury", etc. (app count matches DB count)
@@ -365,9 +372,23 @@ async def search_properties(
             elif annual_tax == "$20,000+":
                 query = query.filter(Property.tax_amount >= 20000)
         
-        # Owner mailing address filter
+        # Owner mailing address filter - match both the address column and full "address, city, state"
+        # so selecting "PO BOX 461, WILLIMANTIC, CT" from dropdown matches DB rows with separate columns
         if owner_address:
-            query = query.filter(Property.owner_address.ilike(f"%{owner_address}%"))
+            term = f"%{owner_address}%"
+            owner_full_address = func.concat(
+                func.coalesce(Property.owner_address, ''),
+                ', ',
+                func.coalesce(Property.owner_city, ''),
+                ', ',
+                func.coalesce(Property.owner_state, '')
+            )
+            query = query.filter(
+                or_(
+                    Property.owner_address.ilike(term),
+                    owner_full_address.ilike(term)
+                )
+            )
         
         # Owner city filter - supports both single value and comma-separated values
         if owner_city:
@@ -480,6 +501,9 @@ async def search_properties(
                     municipality=prop.municipality,
                     zip_code=prop.zip_code,
                     owner_name=prop.owner_name,
+                    owner_address=prop.owner_address,
+                    owner_city=prop.owner_city,
+                    owner_state=prop.owner_state,
                     owner_phone=prop.owner_phone,
                     owner_email=prop.owner_email,
                     assessed_value=prop.assessed_value,

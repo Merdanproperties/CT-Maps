@@ -20,6 +20,7 @@ class AutocompleteSuggestion(BaseModel):
     count: Optional[int] = None
     center_lat: Optional[float] = None
     center_lng: Optional[float] = None
+    municipality: Optional[str] = None  # For address type: town so map search can scope to it
 
 class AutocompleteResponse(BaseModel):
     suggestions: List[AutocompleteSuggestion]
@@ -52,10 +53,16 @@ async def autocomplete(
 
     # Get matching addresses (only when type is None or address)
     if want_address:
+        # Match "224 oak ave torrington" against address + municipality (e.g. "224 OAK AVE" + "Torrington")
+        address_plus_town = func.concat(
+            func.coalesce(Property.address, ''),
+            ' ',
+            func.coalesce(Property.municipality, '')
+        )
         # Use first property's centroid instead of averaging all (more accurate for specific addresses)
         # This prevents incorrect centers when multiple properties with same address exist in different locations
         address_filters = [
-            Property.address.ilike(search_term),
+            or_(Property.address.ilike(search_term), address_plus_town.ilike(search_term)),
             Property.address.isnot(None),
             Property.address != ''
         ]
@@ -118,7 +125,8 @@ async def autocomplete(
                 display=f"{result.address}, {result.municipality or 'CT'}" if result.municipality else result.address,
                 count=result.count,
                 center_lat=float(result.center_lat) if result.center_lat else None,
-                center_lng=float(result.center_lng) if result.center_lng else None
+                center_lng=float(result.center_lng) if result.center_lng else None,
+                municipality=(result.municipality or '').strip() or None
             ))
 
     # Get matching towns/municipalities (only when type is None or town)

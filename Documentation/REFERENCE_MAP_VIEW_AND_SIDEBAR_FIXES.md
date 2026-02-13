@@ -56,6 +56,19 @@ This document records the fixes made to resolve sidebar layout issues, whitespac
 
 Ensure `onSearchChange` and `handleFilterChange('ownerAddress', …)` are wired as above so all three bars open the sidebar and trigger the property query.
 
+### 3.1 All Three Search Chips Returning Correct Sidebar Results (Feb 2026)
+
+**Problem:** When all three chips were active (Address/Town, Owner, Owner Address), the sidebar showed "No properties found" even when a matching property existed (e.g. 14 PEARL ST, GARCIA JOSE, PO BOX 461).
+
+**Cause:** The frontend sent a single combined `q` (e.g. `"14 PEARL ST GARCIA JOSE"`). The backend matched that entire string against each field; no single column contains that concatenation, so no rows matched.
+
+**Fix:**
+
+- **Backend (`backend/api/routes/search.py`):** The search endpoint now supports **multiple terms** in `q` when separated by a **pipe** (`|`). For each term it applies the same OR-across-fields logic (address, owner_name, owner_address, etc.). Terms are **AND**ed: a row must match every term (each in at least one field). Example: `q=14 PEARL ST|GARCIA JOSE` returns rows where (address/owner/… matches "14 PEARL ST") **and** (matches "GARCIA JOSE").
+- **Frontend (`frontend/src/pages/MapView.tsx`):** When both "Address or town" and "Search by owner" have values, `effectiveSearchQuery` joins them with `|` instead of a space, so the API receives pipe-separated terms. The "Owner Address" chip continues to use the existing `owner_address` filter.
+
+**Result:** With all three chips set, the sidebar shows the correct matching properties (e.g. 14 Pearl St, owner Garcia Jose, PO Box 461). Do not change the pipe delimiter or the backend AND logic without updating both sides.
+
 ---
 
 ## 4. White Space Below the Map (Including After F12 / DevTools)
@@ -116,6 +129,8 @@ Ensure `onSearchChange` and `handleFilterChange('ownerAddress', …)` are wired 
 | File | Changes |
 |------|--------|
 | **frontend/src/pages/MapView.css** | Sidebar empty/loading/error flex; header relative + content/scroll min-height; map-view height 100% + flex column; with-sidebar grid rows + placement; map-container-wrapper flex + min-height. |
+| **frontend/src/pages/MapView.tsx** | (Section 3.1) effectiveSearchQuery joins address + owner with `\|` for multi-term search. |
+| **backend/api/routes/search.py** | (Section 3.1) Text search: split `q` by `\|`, apply AND across terms (each term OR across fields). |
 | **frontend/src/components/Layout.css** | main-content min-height: 0, display flex, flex-direction column. |
 | **frontend/src/components/map/LeafletMap.tsx** | MapResizeHandler: window resize listener in addition to ResizeObserver. |
 | **frontend/src/components/map/MapboxMap.tsx** | ResizeObserver on wrapper + window resize calling mapInstance.resize(); ref on map-container-wrapper. |

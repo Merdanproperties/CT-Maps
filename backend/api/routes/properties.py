@@ -18,6 +18,9 @@ class PropertyResponse(BaseModel):
     municipality: Optional[str]
     zip_code: Optional[str]
     owner_name: Optional[str]
+    owner_address: Optional[str] = None
+    owner_city: Optional[str] = None
+    owner_state: Optional[str] = None
     owner_phone: Optional[str]
     owner_email: Optional[str]
     assessed_value: Optional[float]
@@ -268,6 +271,9 @@ async def list_properties(
                 municipality=prop.municipality,
                 zip_code=prop.zip_code,
                 owner_name=prop.owner_name,
+                owner_address=prop.owner_address,
+                owner_city=prop.owner_city,
+                owner_state=prop.owner_state,
                 assessed_value=prop.assessed_value,
                 land_value=prop.land_value,
                 building_value=prop.building_value,

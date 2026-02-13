@@ -52,5 +52,8 @@ postgresapp.dmg
 logs/
 *.log
 
+# Parse cache (134-town re-runs)
+backend/scripts/data_import/134_towns/logs/parse_cache/
+
 # Process IDs
 *.pid

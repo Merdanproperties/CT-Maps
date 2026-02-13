@@ -33,10 +33,13 @@ def main():
     
     parser = argparse.ArgumentParser(description="Batch import towns")
     parser.add_argument("--start-batch", type=int, default=1, help="Start from batch N (1-based). E.g. 3 = skip batches 1-2.")
+    parser.add_argument("--run-all", action="store_true", help="Run all 134 towns without stopping for approval between batches.")
     args = parser.parse_args()
     start_batch = max(1, args.start_batch)
     if start_batch > 1:
         print(f"▶ Starting from BATCH {start_batch} (skipping earlier batches)")
+    if args.run_all:
+        print("▶ --run-all: will process all batches without stopping")
     print()
     
     # Read towns list
@@ -240,8 +243,8 @@ def main():
         
         sys.stdout.flush()  # So tail -f shows batch summary immediately
         
-        # Wait for approval before next batch
-        if batch_num < total_batches - 1:  # Don't ask after last batch
+        # Wait for approval before next batch (unless --run-all)
+        if batch_num < total_batches - 1 and not getattr(args, 'run_all', False):  # Don't ask after last batch
             approval_file = Path(__file__).parent / "APPROVE_NEXT_BATCH.txt"
             stop_file = Path(__file__).parent / "STOP_IMPORT.txt"
             

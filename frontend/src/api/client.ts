@@ -89,7 +89,9 @@ apiClient.interceptors.request.use(
     const fullUrl = (config.baseURL || '') + (config.url || '');
     (typeof import.meta.env.VITE_AGENT_INGEST_URL === 'string' && fetch(import.meta.env.VITE_AGENT_INGEST_URL + '/ingest/27561713-12d3-42d2-9645-e12539baabd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:request',message:'API request start',data:{baseURL:config.baseURL,url:config.url,fullUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,E'})}).catch(()=>{}));
     // #endregion
-    console.log('🌐 API Request:', config.method?.toUpperCase(), config.url, config.params)
+    if (import.meta.env.DEV) {
+      console.log('🌐 API Request:', config.method?.toUpperCase(), config.url, config.params)
+    }
     return config
   },
   (error) => {
@@ -101,7 +103,9 @@ apiClient.interceptors.request.use(
 // Add response interceptor with automatic retry and data normalization
 apiClient.interceptors.response.use(
   (response) => {
-    console.log('✅ API Response:', response.status, response.config.url)
+    if (import.meta.env.DEV) {
+      console.log('✅ API Response:', response.status, response.config.url)
+    }
     if (!healthCheckService.getStatus().isHealthy) {
       healthCheckService.setHealthy()
     }
@@ -505,7 +509,7 @@ export const propertyApi = {
     limit: number = 10,
     signal?: AbortSignal,
     municipality?: string | null
-  ): Promise<{ suggestions: Array<{ type: string; value: string; display: string; count?: number }> }> => {
+  ): Promise<{ suggestions: Array<{ type: string; value: string; display: string; count?: number; center_lat?: number; center_lng?: number }> }> => {
     if (!q || q.length < 2) return { suggestions: [] }
     const params: Record<string, string | number> = { q, limit, search_type: searchType }
     if (municipality && municipality.trim()) params.municipality = municipality.trim()
@@ -657,16 +661,20 @@ export const exportApi = {
 }
 
 export const analyticsApi = {
-  trackSearch: async (event: {
+  /** Fire-and-forget so analytics never blocks UI or delays other requests. */
+  trackSearch: (event: {
     query?: string
     filter_type?: string
     municipality?: string
     result_count: number
-  }): Promise<void> => {
-    await apiClient.post('/api/analytics/track-search', event)
+  }): void => {
+    setTimeout(() => {
+      apiClient.post('/api/analytics/track-search', event).catch(() => {})
+    }, 0)
   },
 
-  trackMapLoad: async (event: {
+  /** Fire-and-forget so analytics never blocks map load or other requests. */
+  trackMapLoad: (event: {
     map_type?: string
     viewport?: {
       center?: [number, number]
@@ -674,10 +682,10 @@ export const analyticsApi = {
       bounds?: { north: number; south: number; east: number; west: number }
     }
     fallback_reason?: string
-  }): Promise<void> => {
-    await apiClient.post('/api/analytics/track-map-load', event).catch(() => {
-      // Silently fail if analytics tracking fails
-    })
+  }): void => {
+    setTimeout(() => {
+      apiClient.post('/api/analytics/track-map-load', event).catch(() => {})
+    }, 0)
   },
 
   getStats: async (days: number = 7) => {
